@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+.env
+*.local
+packages/extension/build/
+e2e/.results/
+e2e/.report/
+packages/extension/build-test/
+.claude/
+e2e/.tmp/
+packages/macos/build/

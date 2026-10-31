@@ -1,0 +1,38 @@
+{
+  "name": "faber",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first, AI-enriched bookmarks for the docs you actually open at work.",
+  "license": "Apache-2.0",
+  "author": "Andrew Sweeney",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asweeney86/faber"
+  },
+  "homepage": "https://github.com/asweeney86/faber#readme",
+  "bugs": "https://github.com/asweeney86/faber/issues",
+  "engines": {
+    "bun": ">=1.2"
+  },
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "faber": "bun packages/daemon/src/cli.ts",
+    "serve": "bun --watch packages/daemon/src/cli.ts serve",
+    "typecheck": "tsc -b packages/shared packages/core packages/daemon && tsc -p packages/ui && tsc -p packages/web --noEmit && tsc -p packages/extension --noEmit && tsc -p scripts && tsc -p packages/macos",
+    "test": "bun test packages scripts",
+    "test:e2e": "playwright test",
+    "build:extension": "bun run --cwd packages/extension build",
+    "dev:extension": "bun run --cwd packages/extension dev",
+    "brand": "bun scripts/brand.ts",
+    "build:macos": "bun packages/macos/build.ts",
+    "test:macos": "FABER_MACOS_UI=1 bun test packages/macos"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.6.0"
+  }
+}

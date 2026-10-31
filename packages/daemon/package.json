@@ -1,0 +1,13 @@
+{
+  "name": "@faber/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "faber": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@faber/core": "workspace:*",
+    "@faber/shared": "workspace:*"
+  }
+}

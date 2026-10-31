@@ -1,0 +1,103 @@
+import {
+  askConfig,
+  loadConfig,
+  makeChat,
+  makeEmbedder,
+  makeEnricher,
+  openDatabase,
+  VectorIndex,
+  type Chat,
+  type Config,
+  type Embedder,
+  type Enricher,
+  type SearchDeps,
+} from "@faber/core";
+import type { Database } from "bun:sqlite";
+
+/** Everything a command or request handler needs. Providers are built lazily so `faber status` works without Ollama. */
+export class AppContext {
+  readonly cfg: Config;
+  readonly db: Database;
+  private _enricher: Enricher | null = null;
+  private _embedder: Embedder | null = null;
+  private _chat: Chat | null = null;
+  private _index: VectorIndex | null = null;
+
+  constructor(cfg: Config = loadConfig()) {
+    this.cfg = cfg;
+    this.db = openDatabase(cfg.db_path);
+  }
+
+  get enricher(): Enricher {
+    return (this._enricher ??= makeEnricher(this.cfg));
+  }
+
+  get embedder(): Embedder {
+    return (this._embedder ??= makeEmbedder(this.cfg));
+  }
+
+  get chat(): Chat {
+    return (this._chat ??= makeChat(this.cfg));
+  }
+
+  /** The embedder, or null when config forbids it. Search then degrades to keyword-only. */
+  get embedderOrNull(): Embedder | null {
+    try {
+      return this.embedder;
+    } catch {
+      return null;
+    }
+  }
+
+  get index(): VectorIndex {
+    if (!this._index) {
+      this._indexSig = this.chunkSignature();
+      this._index = VectorIndex.load(this.db, this.cfg.embed.model);
+    }
+    return this._index;
+  }
+
+  private _indexSig = "";
+
+  private chunkSignature(): string {
+    const r = this.db
+      .query<{ n: number; m: number | null }, [string]>(`SELECT COUNT(*) n, MAX(id) m FROM chunks WHERE embed_model = ?`)
+      .get(this.cfg.embed.model)!;
+    return `${r.n}:${r.m ?? 0}`;
+  }
+
+  /**
+   * Reload the in-memory vector index if chunks changed underneath it — e.g. a
+   * separate `faber enrich` or `faber reindex` process wrote to the database.
+   */
+  syncIndex(): boolean {
+    if (!this._index) return false;
+    const sig = this.chunkSignature();
+    if (sig === this._indexSig) return false;
+    this._index = null;
+    void this.index;
+    return true;
+  }
+
+  /** Call after this process changed chunks itself, so syncIndex doesn't reload needlessly. */
+  noteIndexWrite() {
+    this._indexSig = this.chunkSignature();
+  }
+
+  get searchDeps(): SearchDeps {
+    return { db: this.db, index: this.index, embedder: this.embedderOrNull };
+  }
+
+  describeProviders() {
+    const ask = askConfig(this.cfg);
+    return {
+      enrich: `${this.cfg.enrich.provider}/${this.cfg.enrich.model}`,
+      embed: `${this.cfg.embed.provider}/${this.cfg.embed.model}`,
+      ask: `${ask.provider}/${ask.model}`,
+    };
+  }
+
+  close() {
+    this.db.close();
+  }
+}

@@ -1,0 +1,273 @@
+import { Database } from "bun:sqlite";
+import { dirname } from "node:path";
+import { mkdirSync } from "node:fs";
+
+export const SCHEMA_VERSION = 4;
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id                 TEXT PRIMARY KEY,
+  source             TEXT NOT NULL,
+  canonical_url      TEXT NOT NULL UNIQUE,
+  external_id        TEXT,
+  google_authuser    INTEGER,
+  fts_rowid          INTEGER,
+  title              TEXT NOT NULL DEFAULT '',
+  content            TEXT,
+  content_hash       TEXT,
+  content_fetched_at INTEGER,
+  content_error      TEXT,
+  content_attempts   INTEGER NOT NULL DEFAULT 0,
+  meta               TEXT,
+  first_seen_at      INTEGER NOT NULL,
+  last_seen_at       INTEGER NOT NULL,
+  visit_count        INTEGER NOT NULL DEFAULT 0,
+  pinned             INTEGER NOT NULL DEFAULT 0,
+  note               TEXT,
+  created_at         INTEGER NOT NULL,
+  updated_at         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS documents_last_seen ON documents(last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS documents_external ON documents(external_id);
+
+CREATE TABLE IF NOT EXISTS visits (
+  id       INTEGER PRIMARY KEY,
+  doc_id   TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  ts       INTEGER NOT NULL,
+  referrer TEXT,
+  dwell_ms INTEGER,
+  origin   TEXT NOT NULL DEFAULT 'live'
+);
+CREATE INDEX IF NOT EXISTS visits_doc ON visits(doc_id, ts);
+CREATE UNIQUE INDEX IF NOT EXISTS visits_dedupe ON visits(doc_id, ts, origin);
+
+CREATE TABLE IF NOT EXISTS enrichments (
+  id             INTEGER PRIMARY KEY,
+  doc_id         TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  provider       TEXT NOT NULL,
+  model          TEXT NOT NULL,
+  prompt_version INTEGER NOT NULL,
+  content_hash   TEXT,
+  summary        TEXT NOT NULL,
+  doc_type       TEXT NOT NULL,
+  written_at     TEXT,
+  projects       TEXT NOT NULL,
+  people         TEXT NOT NULL,
+  teams          TEXT NOT NULL,
+  tags           TEXT NOT NULL,
+  confidence     REAL NOT NULL,
+  raw            TEXT,
+  is_current     INTEGER NOT NULL DEFAULT 1,
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS enrichments_doc ON enrichments(doc_id, is_current);
+
+CREATE TABLE IF NOT EXISTS tags (
+  doc_id     TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  tag        TEXT NOT NULL,
+  source     TEXT NOT NULL,
+  confidence REAL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (doc_id, tag)
+);
+CREATE INDEX IF NOT EXISTS tags_tag ON tags(tag);
+
+CREATE TABLE IF NOT EXISTS people (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  email      TEXT UNIQUE,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS doc_people (
+  doc_id    TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  role      TEXT NOT NULL,
+  PRIMARY KEY (doc_id, person_id, role)
+);
+
+CREATE TABLE IF NOT EXISTS collections (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  description TEXT,
+  query       TEXT,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS collection_docs (
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  doc_id        TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  state         TEXT NOT NULL,
+  shared_note   TEXT,
+  created_at    INTEGER NOT NULL,
+  PRIMARY KEY (collection_id, doc_id)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- A meeting is a recurring calendar series, keyed by its normalised title.
+CREATE TABLE IF NOT EXISTS meetings (
+  id           TEXT PRIMARY KEY,
+  series_key   TEXT NOT NULL UNIQUE,
+  title        TEXT NOT NULL,
+  url          TEXT,
+  last_seen_at INTEGER NOT NULL,
+  created_at   INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS doc_meetings (
+  doc_id     TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  linked_at  INTEGER NOT NULL,
+  PRIMARY KEY (doc_id, meeting_id)
+);
+CREATE INDEX IF NOT EXISTS doc_meetings_meeting ON doc_meetings(meeting_id);
+CREATE INDEX IF NOT EXISTS doc_people_person ON doc_people(person_id);
+
+CREATE TABLE IF NOT EXISTS chunks (
+  id          INTEGER PRIMARY KEY,
+  doc_id      TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  ix          INTEGER NOT NULL,
+  text        TEXT NOT NULL,
+  embedding   BLOB,
+  embed_model TEXT,
+  UNIQUE (doc_id, ix)
+);
+
+CREATE TABLE IF NOT EXISTS enrich_queue (
+  doc_id          TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+  priority        REAL NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  last_error      TEXT,
+  -- Failed jobs wait until this time before being retried.
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  -- content_hash of the document when the running job was claimed.
+  claimed_hash    TEXT,
+  -- 1 when the user asked to re-enrich: skip the "same content, same model" shortcut.
+  force           INTEGER NOT NULL DEFAULT 0,
+  updated_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS enrich_queue_status ON enrich_queue(status, priority DESC);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(
+  doc_id UNINDEXED,
+  title,
+  summary,
+  note,
+  tags,
+  people,
+  projects,
+  content,
+  tokenize = 'porter unicode61'
+);
+
+-- Organization corrections (PRD P1). Projects are inferred from enrichment; these
+-- rows are the user's corrections on top, keyed by the project's grouping key, and
+-- always win over inference.
+CREATE TABLE IF NOT EXISTS project_rules (
+  key         TEXT PRIMARY KEY,
+  name        TEXT,                        -- display-name override
+  merge_into  TEXT,                        -- key of the project this one is part of
+  parent      TEXT,                        -- NULL = infer, '' = top level, else a key
+  hidden      INTEGER NOT NULL DEFAULT 0,  -- "not a project"
+  manual      INTEGER NOT NULL DEFAULT 0,  -- created by hand (exists without docs)
+  confirmed   INTEGER NOT NULL DEFAULT 0,  -- reviewed: no longer in the Inbox
+  updated_at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS doc_projects (
+  doc_id     TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  key        TEXT NOT NULL,
+  state      TEXT NOT NULL CHECK (state IN ('add', 'remove')),
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (doc_id, key)
+);
+CREATE TABLE IF NOT EXISTS review_dismissed (
+  id TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_summaries (
+  key        TEXT PRIMARY KEY,
+  input_hash TEXT NOT NULL,
+  summary    TEXT NOT NULL,
+  model      TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+-- Saved views / custom dashboards (PRD P2).
+CREATE TABLE IF NOT EXISTS views (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  spec       TEXT NOT NULL,
+  position   INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`;
+
+export function openDatabase(path: string): Database {
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path, { create: true });
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
+  db.exec("PRAGMA busy_timeout = 5000");
+  db.exec(SCHEMA);
+  migrate(db);
+  return db;
+}
+
+function hasColumn(db: Database, table: string, column: string): boolean {
+  return db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+}
+
+/**
+ * Bring databases created by older versions up to SCHEMA_VERSION. New tables come
+ * from CREATE IF NOT EXISTS above; columns are added when missing, so this is
+ * idempotent and safe even when the stored version is wrong or absent.
+ */
+function migrate(db: Database) {
+  const addColumn = (table: string, column: string, type: string) => {
+    if (!hasColumn(db, table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  };
+  addColumn("collection_docs", "shared_note", "TEXT");
+  addColumn("documents", "google_authuser", "INTEGER");
+  addColumn("enrich_queue", "next_attempt_at", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("enrich_queue", "claimed_hash", "TEXT");
+  addColumn("enrich_queue", "force", "INTEGER NOT NULL DEFAULT 0");
+  if (!hasColumn(db, "documents", "fts_rowid")) {
+    db.exec("ALTER TABLE documents ADD COLUMN fts_rowid INTEGER");
+    rebuildFts(db);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS documents_fts_rowid ON documents(fts_rowid)");
+  db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [
+    String(SCHEMA_VERSION),
+  ]);
+}
+
+/** Recreate the full-text index from documents, recording each row's FTS rowid. */
+export function rebuildFts(db: Database) {
+  db.transaction(() => {
+    db.exec("DELETE FROM docs_fts");
+    db.exec(`INSERT INTO docs_fts (rowid, doc_id, title, summary, note, tags, people, projects, content)
+      SELECT d.rowid, d.id, d.title, COALESCE(e.summary, ''), COALESCE(d.note, ''),
+        COALESCE((SELECT group_concat(t.tag, ' ') FROM tags t WHERE t.doc_id = d.id), ''),
+        COALESCE((SELECT group_concat(j.value, ' ') FROM json_each(e.people) j), ''),
+        COALESCE((SELECT group_concat(j.value, ' ') FROM json_each(e.projects) j), '') || ' ' ||
+          COALESCE((SELECT group_concat(j.value, ' ') FROM json_each(e.teams) j), ''),
+        substr(COALESCE(d.content, ''), 1, 200000)
+      FROM documents d LEFT JOIN enrichments e ON e.doc_id = d.id AND e.is_current = 1`);
+    db.exec("UPDATE documents SET fts_rowid = rowid");
+  })();
+}
+
+export const now = () => Date.now();
+
+export function newId(): string {
+  return crypto.randomUUID();
+}

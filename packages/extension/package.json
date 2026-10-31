@@ -1,0 +1,23 @@
+{
+  "name": "@faber/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build.ts",
+    "build:test": "FABER_TEST=1 bun build.ts",
+    "dev": "bun dev.ts",
+    "test": "bun test src"
+  },
+  "dependencies": {
+    "@faber/shared": "workspace:*",
+    "@faber/ui": "workspace:*",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0"
+  }
+}
