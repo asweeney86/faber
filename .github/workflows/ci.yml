@@ -76,6 +76,15 @@ jobs:
           fi
       - name: Install with Homebrew from a local tap, like a user would
         run: bash scripts/brew-local-test.sh dist/release
+      - name: Real Homebrew upgrade from the latest published release (with the service running)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern faber.rb --dir prev-formula 2>/dev/null; then
+            bash scripts/brew-upgrade-test.sh prev-formula/faber.rb dist/release
+          else
+            echo "No published release yet: nothing to upgrade from"
+          fi
       - name: Native launcher self-test
         # Drives the real app (hotkey, keystrokes, crash recovery); hosted runners have a GUI
         # session, but if one ever doesn't, this shouldn't block the build.

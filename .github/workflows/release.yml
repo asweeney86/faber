@@ -67,6 +67,15 @@ jobs:
           fi
       - name: Install with Homebrew, set up, uninstall
         run: bash scripts/brew-local-test.sh dist/macos
+      - name: Real Homebrew upgrade from the latest published release (with the service running)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern faber.rb --dir prev-formula 2>/dev/null; then
+            bash scripts/brew-upgrade-test.sh prev-formula/faber.rb dist/macos
+          else
+            echo "No published release yet: nothing to upgrade from"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -129,17 +138,20 @@ jobs:
             gh release create "$TAG" out/* --title "Faber $VERSION" --generate-notes --verify-tag
           fi
       - name: Update the Homebrew tap
-        # Needs a fine-grained token with contents:write on asweeney86/homebrew-faber, saved as
-        # the TAP_GITHUB_TOKEN secret. Without it the tap's own scheduled workflow picks the
-        # new formula up from this release within the hour.
+        # TAP_DEPLOY_KEY is a write deploy key for asweeney86/homebrew-faber only. Without it,
+        # the tap's own scheduled workflow picks the new formula up from this release within the hour.
         env:
-          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
         run: |
-          if [ -z "$TAP_TOKEN" ]; then
-            echo "::notice::No TAP_GITHUB_TOKEN secret; the tap will update itself from this release."
+          if [ -z "$TAP_DEPLOY_KEY" ]; then
+            echo "::notice::No TAP_DEPLOY_KEY secret; the tap will update itself from this release."
             exit 0
           fi
-          git clone "https://x-access-token:$TAP_TOKEN@github.com/asweeney86/homebrew-faber.git" tap
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key
+          chmod 600 ~/.ssh/tap_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone git@github.com:asweeney86/homebrew-faber.git tap
           mkdir -p tap/Formula
           cp out/faber.rb tap/Formula/faber.rb
           cd tap
