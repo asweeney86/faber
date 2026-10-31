@@ -11,3 +11,4 @@ packages/extension/build-test/
 .claude/
 e2e/.tmp/
 packages/macos/build/
+*.bun-build

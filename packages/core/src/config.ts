@@ -168,7 +168,9 @@ export function loadConfig(): Config {
   try {
     user = parseToml(readFileSync(path, "utf8")) as Record<string, unknown>;
   } catch (e) {
-    throw new ConfigError(`${path}: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+    // smol-toml's errors carry the position; put it where editors and terminals understand it.
+    const at = e && typeof e === "object" && "line" in e && "column" in e ? `:${(e as { line: number }).line}:${(e as { column: number }).column}` : "";
+    throw new ConfigError(`${path}${at}: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
   }
   const defaults = defaultConfig(home) as unknown as Record<string, Record<string, unknown>>;
   // A section that switches provider must not inherit the default Ollama base_url.
@@ -231,4 +233,37 @@ export function isLocalUrl(url: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Set `key = value` in one [section] of a config file, keeping every comment and
+ * other line as written. Adds the key (or the section) when it isn't there.
+ * Commented-out examples ("# [enrich]") are left alone.
+ */
+export function setConfigValue(text: string, section: string, key: string, value: string | number | boolean): string {
+  const rendered = `${key} = ${typeof value === "string" ? JSON.stringify(value) : String(value)}`;
+  const lines = text.split("\n");
+  const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const headerRe = new RegExp(`^\\s*\\[\\s*${esc(section)}\\s*\\]\\s*(#.*)?$`);
+  const header = lines.findIndex((l) => headerRe.test(l));
+  if (header === -1) {
+    const tail = text.endsWith("\n") || text === "" ? "" : "\n";
+    return `${text}${tail}\n[${section}]\n${rendered}\n`;
+  }
+  let end = lines.length;
+  for (let i = header + 1; i < lines.length; i++) {
+    if (/^\s*\[[^\]]+\]\s*(#.*)?$/.test(lines[i]!)) {
+      end = i;
+      break;
+    }
+  }
+  const keyRe = new RegExp(`^\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=`);
+  for (let i = header + 1; i < end; i++) {
+    if (keyRe.test(lines[i]!)) {
+      lines[i] = rendered;
+      return lines.join("\n");
+    }
+  }
+  lines.splice(header + 1, 0, rendered);
+  return lines.join("\n");
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   providerProblems,
@@ -25,19 +25,35 @@ import {
   setContent,
   stats,
 } from "@faber/core";
+import { ConfigError, configHome, DatabaseTooNewError } from "@faber/core";
 import type { SearchHit } from "@faber/shared";
 import { AppContext } from "./context";
 import { seedDemo } from "./demo";
 import { startServer } from "./server";
+import { VERSION } from "./version";
+import { syncExtension, syncLauncher } from "./install/assets";
+import { detectLayout, extensionInstallPath, launcherInstallPath } from "./install/layout";
+import { installService, restartService, serviceKind, uninstallService, UPGRADE_EXIT_CODE } from "./install/service";
+import { quitLauncher, realHost, runDoctor, runSetup, runUninstall, terminalIo } from "./install/setup";
+import { watchForUpgrade } from "./install/upgrade-watch";
 
-const USAGE = `faber — local-first, AI-enriched bookmarks
+const USAGE = `faber ${VERSION} — a local-first memory for the documents you open at work
 
+  faber setup [--yes]                  Set everything up (AI models, background service,
+                                       extension, launcher). Safe to run again. Skip parts
+                                       with --no-ai, --no-service, --no-extension,
+                                       --no-launcher; --no-open opens nothing.
+  faber doctor                         Check the install and say how to fix what's wrong
+  faber service [install|restart|uninstall]
+                                       Manage the background service
+  faber uninstall [--purge]            Remove the service, launcher and extension copy
+                                       (--purge also deletes your data)
   faber serve                          Start the daemon (HTTP API + background enrichment)
   faber status                         Counts, queue state, provider config
   faber import-chrome [--profile X]    Import docs.google.com visits from Chrome history
                      [--list] [--dry-run]
   faber add <url> [--file text.txt] [--title T]
-                                    Add a document manually (optionally with its text)
+                                       Add a document by hand (optionally with its text)
   faber enrich [--limit N]             Run the enrichment queue now
   faber search <query> [--json]        Search (keyword + semantic)
             [--mode hybrid|keyword|semantic] [--limit N]
@@ -46,13 +62,15 @@ const USAGE = `faber — local-first, AI-enriched bookmarks
   faber projects                       List projects as a tree (inferred, with your corrections)
   faber export <collection-id> [file]  Write a shareable collection file (URLs + notes, no doc text)
   faber import <file>                  Import a collection file
-  faber extensions [approve|remove <id>]  List, approve or remove browser extensions allowed to use the API
+  faber extensions [approve|remove <id>]
+                                       List, approve or remove extensions allowed to use the API
   faber demo                           Load demo documents (try it with FABER_HOME=$(mktemp -d))
   faber reindex                        Re-embed every document with the configured embed model
   faber requeue                        Re-run enrichment for every document (after a model or prompt change)
   faber config                         Print the config file path
+  faber version                        Print the version
 
-Config lives in ~/.faber/config.toml (override with FABER_HOME).
+Config lives in ${process.env.FABER_HOME ? `${process.env.FABER_HOME}/config.toml (FABER_HOME)` : "~/.faber/config.toml (override with FABER_HOME)"}.
 `;
 
 interface Args {
@@ -76,7 +94,9 @@ function parseArgs(argv: string[]): Args {
   const flags: Record<string, string | boolean> = {};
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
-    if (a.startsWith("--")) {
+    if (a === "-y") {
+      flags.yes = true;
+    } else if (a.startsWith("--")) {
       const key = a.slice(2);
       const next = rest[i + 1];
       if (next !== undefined && !next.startsWith("--")) {
@@ -111,7 +131,7 @@ function printHit(h: SearchHit, i: number) {
     ].filter(Boolean);
     if (facets.length) console.log(`    ${facets.join(" · ")}`);
   }
-  if (h.snippet) console.log(`    …${h.snippet}…`);
+  if (h.snippet) console.log(`    …${h.snippet.replace(/\s+/g, " ").replace(/^…|…$/g, "").trim()}…`);
   console.log();
 }
 
@@ -121,14 +141,29 @@ async function main() {
     console.log(USAGE);
     return;
   }
+  if (cmd === "version" || cmd === "--version" || cmd === "-v") {
+    console.log(VERSION);
+    return;
+  }
 
-  const ctx = new AppContext();
+  if (cmd === "config") {
+    console.log(join(configHome(), "config.toml"));
+    return;
+  }
+  let ctx: AppContext;
+  try {
+    ctx = new AppContext();
+  } catch (err) {
+    if (!(err instanceof ConfigError)) throw err;
+    // A broken config.toml stops everything; say exactly that, and how to get going again.
+    const where = join(configHome(), "config.toml");
+    console.error(`${cmd === "doctor" ? "  ✗ " : ""}Faber can't read its config: ${err.message}`);
+    console.error(`  Fix that line in ${where}, or move the file aside and Faber writes a fresh default.`);
+    process.exitCode = 1;
+    return;
+  }
   try {
     switch (cmd) {
-      case "config":
-        console.log(join(ctx.cfg.home, "config.toml"));
-        break;
-
       case "status": {
         const s = stats(ctx.db);
         const ollamaUrl = ctx.cfg.embed.base_url ?? "http://127.0.0.1:11434";
@@ -166,9 +201,15 @@ async function main() {
         const url = positional[0];
         if (!url) throw new Error("usage: faber add <url> [--file text.txt] [--title T]");
         if (!/^https?:\/\//i.test(url) || !URL.canParse(url)) throw new Error(`Not an http(s) URL: ${url}`);
-        const { row, created } = recordVisit(ctx.db, { url, title: typeof flags.title === "string" ? flags.title : undefined, origin: "manual" });
+        // Read the file first, so a typo in its name doesn't leave an empty document behind.
+        let text: string | null = null;
         if (typeof flags.file === "string") {
-          setContent(ctx.db, row.id, readFileSync(flags.file, "utf8"));
+          if (!existsSync(flags.file)) throw new Error(`No such file: ${flags.file}`);
+          text = readFileSync(flags.file, "utf8");
+        }
+        const { row, created } = recordVisit(ctx.db, { url, title: typeof flags.title === "string" ? flags.title : undefined, origin: "manual" });
+        if (text !== null && typeof flags.file === "string") {
+          setContent(ctx.db, row.id, text);
           console.log(`${created ? "Added" : "Updated"} ${row.id} with ${flags.file}; queued for enrichment`);
         } else {
           console.log(`${created ? "Added" : "Updated"} ${row.id}`);
@@ -188,7 +229,8 @@ async function main() {
       }
 
       case "search": {
-        const q = positional.join(" ");
+        const q = positional.join(" ").trim();
+        if (!q) throw new Error('usage: faber search <query> [--mode hybrid|keyword|semantic] [--limit N] [--json]');
         const mode = typeof flags.mode === "string" ? flags.mode : "hybrid";
         if (mode !== "hybrid" && mode !== "keyword" && mode !== "semantic") throw new Error(`--mode must be hybrid, keyword or semantic`);
         const limit = intFlag(flags, "limit") ?? 10;
@@ -255,6 +297,7 @@ async function main() {
       case "import": {
         const path = positional[0];
         if (!path) throw new Error("usage: faber import <file>");
+        if (!existsSync(path)) throw new Error(`No such file: ${path}`);
         let file;
         try {
           file = JSON.parse(readFileSync(path, "utf8"));
@@ -326,15 +369,105 @@ async function main() {
       }
 
       case "serve": {
-        const server = startServer(ctx);
-        console.log(`Faber daemon on http://${server.hostname}:${server.port}`);
+        const layout = detectLayout();
+        syncInstalledCopies(layout, ctx.cfg.home);
+        let server: ReturnType<typeof startServer> | null = null;
+        // As a service, the previous daemon may still be letting go of the port: give it a moment.
+        for (let attempt = 0; !server; attempt++) {
+          try {
+            server = startServer(ctx);
+          } catch (err) {
+            if (process.env.FABER_SERVICE === "1" && attempt < 20) {
+              await Bun.sleep(500);
+              continue;
+            }
+            throw new ServeError(await explainServeFailure(ctx.cfg, err));
+          }
+        }
+        console.log(`Faber ${VERSION} is running. Open http://${server.hostname}:${server.port} (Ctrl-C to stop)`);
         console.log(`enrich: ${ctx.cfg.enrich.provider}/${ctx.cfg.enrich.model}   embed: ${ctx.cfg.embed.provider}/${ctx.cfg.embed.model}`);
+        let stopping = false;
+        const shutdown = (code: number) => {
+          if (stopping) return;
+          stopping = true;
+          server.stop(true);
+          ctx.close();
+          process.exit(code);
+        };
+        process.on("SIGTERM", () => shutdown(0));
+        process.on("SIGINT", () => shutdown(0));
+        if (layout.compiled) {
+          const asService = process.env.FABER_SERVICE === "1";
+          watchForUpgrade(layout.command[0]!, (e) => {
+            if (!asService) {
+              console.error(`Faber was ${e.kind === "replaced" ? "updated" : "removed"} on disk; restart \`faber serve\` to use the new version.`);
+            } else if (e.kind === "replaced") {
+              console.error(`Faber was updated on disk; restarting into the new version.`);
+              shutdown(UPGRADE_EXIT_CODE);
+            } else {
+              console.error(`Faber was uninstalled; stopping.`);
+              shutdown(0);
+            }
+          }, Number(process.env.FABER_UPGRADE_POLL_MS) || 30_000);
+        }
         await new Promise(() => {});
         break;
       }
 
+      case "setup": {
+        const io = terminalIo(flags.yes === true || flags.y === true);
+        const ok = await runSetup(
+          { io, host: realHost, layout: detectLayout(), db: ctx.db, cfg: ctx.cfg },
+          {
+            service: flags["no-service"] !== true,
+            ai: flags["no-ai"] !== true,
+            extension: flags["no-extension"] !== true,
+            launcher: flags["no-launcher"] !== true,
+            open: flags["no-open"] !== true,
+          },
+        );
+        io.close();
+        if (!ok) process.exitCode = 1;
+        break;
+      }
+
+      case "doctor": {
+        const ok = await runDoctor({ io: terminalIo(true), layout: detectLayout(), db: ctx.db, cfg: ctx.cfg });
+        if (!ok) process.exitCode = 1;
+        break;
+      }
+
+      case "service": {
+        const layout = detectLayout();
+        const sub = positional[0] ?? "install";
+        if (sub === "install") {
+          const env: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
+          if (process.env.FABER_HOME) env.FABER_HOME = process.env.FABER_HOME;
+          console.log(installService(layout, { home: ctx.cfg.home, env, logFile: join(ctx.cfg.home, "logs", "daemon.log") }));
+        } else if (sub === "restart") {
+          if (!restartService(layout)) throw new Error(`No ${serviceKind(layout)} service to restart. Install it with: faber service install`);
+          console.log("Restarted");
+        } else if (sub === "uninstall") {
+          const done = uninstallService(layout);
+          console.log(done.length ? done.join("\n") : "No background service was installed");
+        } else {
+          throw new Error("Usage: faber service [install|restart|uninstall]");
+        }
+        break;
+      }
+
+      case "uninstall": {
+        const io = terminalIo(flags.yes === true);
+        await runUninstall({ io, host: realHost, layout: detectLayout(), db: ctx.db, cfg: ctx.cfg }, { purge: flags.purge === true });
+        io.close();
+        break;
+      }
+
       default:
-        console.error(`Unknown command: ${cmd}\n`);
+        const near = COMMANDS.map((c) => ({ c, d: editDistance(c, cmd) }))
+          .filter((x) => x.d <= 2)
+          .sort((x, y) => x.d - y.d)[0]?.c;
+        console.error(`Unknown command: ${cmd}${near ? ` (did you mean \`faber ${near}\`?)` : ""}\n`);
         console.log(USAGE);
         process.exitCode = 1;
     }
@@ -343,7 +476,69 @@ async function main() {
   }
 }
 
+/**
+ * Bring the extension Chrome loads and the launcher in ~/Applications up to this version.
+ * Only copies that `faber setup` installed are touched, and only by release builds (a
+ * source checkout never replaces them); failures never stop the daemon.
+ */
+function syncInstalledCopies(layout: ReturnType<typeof detectLayout>, home: string) {
+  if (!layout.compiled) return;
+  try {
+    const ext = syncExtension(layout.extensionSrc, extensionInstallPath(home));
+    if (ext === "updated") console.error(`[install] updated the Chrome extension in ${extensionInstallPath(home)}`);
+  } catch (err) {
+    console.error(`[install] couldn't update the extension: ${err instanceof Error ? err.message : err}`);
+  }
+  try {
+    const app = launcherInstallPath();
+    const r = syncLauncher(layout.launcherSrc, app);
+    if (r === "updated") {
+      console.error(`[install] updated ${app}`);
+      // Restart a running launcher so the new version takes over (one the user quit stays quit).
+      void quitLauncher().then((wasRunning) => wasRunning && realHost.open(app, ["-g"]));
+    }
+  } catch (err) {
+    console.error(`[install] couldn't update the launcher: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+const COMMANDS = [
+  "setup", "doctor", "service", "uninstall", "serve", "status", "import-chrome", "add", "enrich", "search", "ask",
+  "collections", "projects", "export", "import", "extensions", "demo", "reindex", "requeue", "config", "version", "help",
+];
+
+function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0]![j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length]![b.length]!;
+}
+
+/** Why `faber serve` couldn't listen, in terms a user can act on. */
+async function explainServeFailure(cfg: AppContext["cfg"], err: unknown): Promise<string> {
+  const url = `http://${cfg.daemon.host}:${cfg.daemon.port}`;
+  try {
+    const res = await fetch(`${url}/api/status`, { signal: AbortSignal.timeout(1500) });
+    const s = (await res.json()) as { version?: string; config_path?: string };
+    if (s.version) {
+      return `Faber ${s.version} is already running at ${url}${s.config_path ? ` (using ${s.config_path})` : ""}. Open it in your browser, or stop that one first.\nTo run a second Faber, give it another port: set [daemon] port in ${join(cfg.home, "config.toml")}.`;
+    }
+  } catch {}
+  return `Couldn't listen on ${url}: ${err instanceof Error ? err.message : err}\nSomething else is probably using port ${cfg.daemon.port}. Set another one under [daemon] port in ${join(cfg.home, "config.toml")}.`;
+}
+
+/** Problems a service manager can't fix by restarting us. */
+class ServeError extends Error {}
+
 main().catch((err) => {
+  // Restarting can't fix these; exit 0 so launchd/systemd leave the service stopped
+  // instead of respawning it every few seconds (the log says why).
+  if (process.env.FABER_SERVICE === "1" && (err instanceof ServeError || err instanceof DatabaseTooNewError)) {
+    console.error(err.message);
+    process.exit(0);
+  }
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

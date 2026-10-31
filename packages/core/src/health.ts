@@ -10,7 +10,7 @@ export interface ProviderHealth {
 const OLLAMA_DEFAULT = "http://127.0.0.1:11434";
 let cache: { at: number; value: Record<string, ProviderHealth> } | null = null;
 
-async function ollamaModels(baseUrl: string): Promise<string[] | null> {
+export async function ollamaModels(baseUrl: string): Promise<string[] | null> {
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/tags`, { signal: AbortSignal.timeout(1500) });
     if (!res.ok) return null;
@@ -22,7 +22,7 @@ async function ollamaModels(baseUrl: string): Promise<string[] | null> {
 }
 
 /** "qwen3-embedding" is pulled as "qwen3-embedding:latest". */
-function hasModel(models: string[], wanted: string): boolean {
+export function hasModel(models: string[], wanted: string): boolean {
   return models.some((m) => m === wanted || m === `${wanted}:latest` || m.replace(/:latest$/, "") === wanted);
 }
 

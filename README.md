@@ -126,61 +126,69 @@ Faber stores confidential work documents, so its defaults are conservative:
 
 ## Get started
 
-You need [Bun](https://bun.sh) ≥ 1.2, [Ollama](https://ollama.com) and Chrome. Faber is tested on macOS (Apple silicon); Linux should work.
+On a Mac (Apple silicon or Intel, macOS 13+) or Linux, with [Homebrew](https://brew.sh):
 
 ```bash
-# 1. Local models (about 10 GB; on machines with < 16 GB RAM use qwen3:4b and set it in config.toml)
-ollama pull qwen3:8b
-ollama pull qwen3-embedding
-
-# 2. The daemon
-git clone https://github.com/asweeney86/faber
-cd faber && bun install
-bun faber serve                 # → http://127.0.0.1:7777, leave it running
+brew install asweeney86/faber/faber
+faber setup
 ```
 
-**3. Install the extension.**
-1. Run `bun run build:extension`.
-2. Open `chrome://extensions`, turn on *Developer mode*, choose **Load unpacked**, and pick `packages/extension/build`.
-3. Open its popup once.
-4. Approve it in the web app under **Settings → Capture & Sources**, or with `bun faber extensions approve <id>`.
+`faber setup` walks you through the rest, and is safe to run again any time:
 
-**4. Choose what to watch.** In **Settings → Capture & Sources**, turn on Google Docs, Slides, Sheets or Calendar. One-click presets cover Notion, Confluence & Jira, GitHub, Linear, Drive and Figma. You can add any other site as a custom rule.
+1. **Local AI.** If Ollama isn't there, setup installs it with Homebrew. It then pulls `qwen3:8b` and `qwen3-embedding` (about 10 GB, once). On machines with less than 16 GB of memory it suggests the lighter `qwen3:4b`.
+2. **Background service.** The daemon starts at login and restarts itself after upgrades: `http://127.0.0.1:7777`.
+3. **Chrome extension.** Setup copies it to `~/.faber/extension` and approves it in advance. You do one thing: in `chrome://extensions`, turn on *Developer mode* and choose **Load unpacked** (setup puts the path on your clipboard).
+4. **Launcher** (macOS). Setup installs `Faber Launcher.app` in `~/Applications`, which opens with <kbd>⌥Space</kbd> from anywhere and optionally starts at login.
+5. **Your documents.** Setup turns on Google Docs, Slides and Sheets, and can import the docs you opened in Chrome over the last 90 days.
 
-**5. Optional: seed from your history.** Chrome keeps about 90 days:
+Then open `http://127.0.0.1:7777`. More sites (Notion, Confluence, Jira, GitHub, Linear, Figma, or any custom rule) are a click away in **Settings → Capture & Sources**.
 
 ```bash
-bun faber import-chrome --list              # find your work profile
-bun faber import-chrome --profile "Work"    # or the directory, e.g. --profile "Profile 19"
+faber doctor          # checks every piece and says how to fix what's wrong
+brew upgrade faber    # upgrades in place; the service, extension and launcher follow by themselves
+faber uninstall       # removes the service, launcher and extension copy (keeps your data; --purge deletes it)
 ```
 
-The extension fetches text for those docs in the background, and the daemon enriches them, most-visited first. That takes about 8 seconds per document with `qwen3:8b` on an M1 Max.
+**Upgrades are safe.** Before any schema change, Faber copies your database to `~/.faber/backups/`, and the change itself is all or nothing. Every release is tested against databases written by earlier releases, including rolling back to the previous version. See [CONTRIBUTING.md](CONTRIBUTING.md#upgrades-must-never-break-anyone).
 
 > [!TIP]
-> **Just want to look around?** Load demo data into a throwaway home. With Ollama running, Qwen enriches it in about two minutes:
+> **Just want to look around?** Load demo data into a throwaway home on its own port, so it doesn't disturb your real one:
 > ```bash
 > export FABER_HOME=$(mktemp -d)
-> bun faber demo && bun faber serve
+> printf '[daemon]\nport = 7787\n' > "$FABER_HOME/config.toml"
+> faber demo && faber serve        # → http://127.0.0.1:7787
 > ```
-> Not using Ollama yet? Run the demo with the offline `fake` providers instead:
+> With Ollama running, Qwen enriches the demo in about two minutes. No Ollama yet? Before `faber demo`, switch the throwaway home to the offline `fake` providers:
 > ```bash
-> printf '[embed]\nprovider = "fake"\nmodel = "fake-embed"\n[enrich]\nprovider = "fake"\nmodel = "fake-enrich"\n' > "$FABER_HOME/config.toml"
+> printf '[embed]\nprovider = "fake"\nmodel = "fake-embed"\n[enrich]\nprovider = "fake"\nmodel = "fake-enrich"\n' >> "$FABER_HOME/config.toml"
 > ```
+
+<details>
+<summary><b>Without Homebrew, or from source</b></summary>
+
+<br>
+
+**A release tarball.** Each [release](https://github.com/asweeney86/faber/releases) has `faber-<version>-<os>-<arch>.tar.gz`, which contains one `bin/faber` binary (no runtime needed) plus `share/faber/` with the extension and the launcher. Unpack it anywhere, put `bin` on your `PATH`, and run `faber setup`. The service is a LaunchAgent on macOS and a systemd user unit on Linux.
+
+**From source** (needs [Bun](https://bun.sh) ≥ 1.2; the launcher also needs `xcode-select --install`):
+
+```bash
+git clone https://github.com/asweeney86/faber && cd faber && bun install
+bun run build:extension && bun run build:macos   # what setup installs
+bun faber setup
+```
+
+</details>
 
 ### The native macOS launcher
 
-This is a small menu-bar app that opens the launcher from anywhere on your Mac. It needs macOS 13+ and the Xcode command line tools (`xcode-select --install`).
-
-```bash
-bun run build:macos
-open "packages/macos/build/Faber Launcher.app"
-```
+`faber setup` installs it. It's a small menu-bar app:
 
 - Press <kbd>⌥Space</kbd> to show it. <kbd>Esc</kbd> or clicking elsewhere hides it.
 - Documents open in your default browser.
 - If the daemon isn't running, the panel says so, and it recovers by itself when the daemon comes back.
 
-To keep it, move it to `/Applications`, then turn on **Open at login** from the menu-bar icon. Settings:
+To turn **Open at login** on or off, use the menu-bar icon. Other settings:
 
 ```bash
 defaults write dev.faber.launcher hotkey "cmd+shift+space"           # another shortcut (then reopen the app)
@@ -195,7 +203,7 @@ defaults write dev.faber.launcher daemonURL "http://127.0.0.1:7788"  # a daemon 
 | **Launcher** | <kbd>⌘K</kbd> in the app, <kbd>⌘⇧K</kbd> on any page, <kbd>⌥Space</kbd> on macOS. Inside it: <kbd>↑</kbd><kbd>↓</kbd> move, <kbd>↵</kbd> open, <kbd>⌘↵</kbd> new tab, <kbd>⇥</kbd> sections, <kbd>⌥R/C/P/A/O</kbd> quick actions, <kbd>Esc</kbd> back or close |
 | **Extension popup** | Is this page saved? Save it, or edit its pin, projects, tags and note |
 | **Address bar** | type `faber`, then a space |
-| **CLI** | `bun faber search "pricing doc from infra"` · `bun faber ask "what blocked the Frankfurt launch?"` |
+| **CLI** | `faber search "pricing doc from infra"` · `faber ask "what blocked the Frankfurt launch?"` |
 
 <details>
 <summary><b>Adding docs without the extension</b></summary>
@@ -206,7 +214,7 @@ defaults write dev.faber.launcher daemonURL "http://127.0.0.1:7788"  # a daemon 
   - For a Google doc, use *File → Download → Plain text* and drop the file in.
   - With text, the doc is summarized, tagged and searchable right away.
 - **Bookmarklet:** drag it from **Settings** to your bookmarks bar.
-- **CLI:** `bun faber add <url> --title "…" --file doc.txt`
+- **CLI:** `faber add <url> --title "…" --file doc.txt`
 - **API:** `POST /api/docs` with `{ "url", "title", "content", "note", "tags", "pinned", "collection_id" }`.
 
 There's one short note per document on purpose. Faber is not a note-taking app.
@@ -267,7 +275,11 @@ allow_remote = false          # must be true for anthropic / claude-cli / remote
 
 | Command | What it does |
 |---|---|
-| `faber serve` | Run the daemon: API, web UI and background enrichment |
+| `faber setup [--yes]` | Set everything up, or fix what's missing (safe to re-run). Skip parts with `--no-ai`, `--no-service`, `--no-extension`, `--no-launcher`; `--no-open` opens nothing |
+| `faber doctor` | Check the install: daemon, service, Ollama and models, extension, launcher |
+| `faber service [install\|restart\|uninstall]` | Manage the background service |
+| `faber uninstall [--purge]` | Remove the service, launcher and extension copy (`--purge` also deletes your data) |
+| `faber serve` | Run the daemon in the foreground: API, web UI and background enrichment |
 | `faber status` | Counts, queue state, providers, Ollama reachability |
 | `faber import-chrome [--profile X] [--list] [--dry-run]` | Seed from Chrome history |
 | `faber add <url> [--file text.txt] [--title T]` | Add a document by hand, optionally with its text |
@@ -278,9 +290,9 @@ allow_remote = false          # must be true for anthropic / claude-cli / remote
 | `faber collections` · `faber export <id> [file]` · `faber import <file>` | List, export and import collections |
 | `faber extensions [approve\|remove <id>]` | Manage which browser extensions may use the API |
 | `faber reindex` · `faber requeue` | Re-embed everything, or re-run enrichment (after changing models) |
-| `faber demo` · `faber config` | Load demo documents · print the config file path |
+| `faber demo` · `faber config` · `faber version` | Load demo documents · print the config file path · print the version |
 
-Run them with `bun faber …` from the repo.
+From a source checkout, run them as `bun faber …`.
 
 ## Development
 
@@ -289,7 +301,7 @@ bun install
 bun run typecheck       # all packages
 bun run test            # unit + HTTP integration tests
 bun run test:e2e        # Playwright: the web UI and the real extension in Chromium, against a seeded daemon
-bun run test:macos      # builds the native launcher and runs its self-test (shows a panel for ~12s)
+bun run test:macos      # builds the native launcher and runs its self-test (shows a panel for ~30s)
 bun run serve           # daemon with --watch
 bun run dev:extension   # rebuild the extension on save and auto-reload it in Chrome
 ```
@@ -306,6 +318,8 @@ For `dev:extension`, load `packages/extension/build` once via **Load unpacked**.
 | [`packages/extension`](packages/extension) | Chrome MV3 extension |
 | [`packages/macos`](packages/macos) | Native menu-bar launcher (Swift/AppKit) |
 
+Releases are built and tested by CI. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing) for how that works and how to try a release locally (`scripts/release.ts`, `scripts/smoke.ts`, `scripts/brew-local-test.sh`).
+
 End-to-end tests run against offline `fake` providers and demo data, so they need neither Ollama nor Google. The screenshots here come from the demo data, enriched locally by `qwen3:8b`. Regenerate them with `bun scripts/screenshots.ts --daemon <url>`. The product requirements are in [docs/PRD.md](docs/PRD.md).
 
 <details>
@@ -319,7 +333,8 @@ End-to-end tests run against offline `fake` providers and demo data, so they nee
 - Search is brute-force over in-memory vectors, which is comfortable up to tens of thousands of documents.
 - Keyword search splits on spaces and punctuation, so for Chinese and Japanese text it matches whole runs rather than words inside them. Semantic search still works.
 - Corrections are per project and per document; bulk reorganization beyond merge and move is future work.
-- The macOS app is ad-hoc signed, for the Mac that built it.
+- The release binaries and the launcher are ad-hoc signed, not notarized. Installs through Homebrew or `faber setup` aren't quarantined, so macOS runs them. If you download a tarball with a browser, clear the flag with `xattr -dr com.apple.quarantine <folder>`.
+- The extension isn't in the Chrome Web Store yet, so Chrome loads it unpacked (with Developer mode on).
 
 </details>
 

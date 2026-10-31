@@ -31,6 +31,8 @@ interface LocalShape {
   lastBackfill: BackfillState | null;
   /** Backfill is paused until this time after Google rate-limited us. */
   backfillCooldownUntil: number;
+  /** Daemon version we last reloaded for, after it updated our files (lib/selfupdate.ts). */
+  reloadedFor: string | null;
 }
 
 interface SessionShape {
@@ -47,6 +49,7 @@ const LOCAL_DEFAULTS: LocalShape = {
   lastSync: null,
   lastBackfill: null,
   backfillCooldownUntil: 0,
+  reloadedFor: null,
 };
 
 export async function getItem<K extends keyof LocalShape>(key: K): Promise<LocalShape[K]> {

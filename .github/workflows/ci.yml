@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: "1.4.4"
+
+jobs:
+  test:
+    name: Typecheck and unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+
+  e2e:
+    name: Browser tests (web app and extension)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run --cwd packages/extension build:test
+      - run: bun run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            e2e/.report
+            e2e/.results
+          retention-days: 7
+
+  macos:
+    name: macOS release build, smoke and upgrade test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      # macOS-only unit tests (the launcher app, asset syncing with ditto).
+      - run: bun run test
+      - name: Build release tarballs
+        run: bun scripts/release.ts --targets darwin-arm64,darwin-x64
+      - name: Smoke test the tarball a user would download
+        run: bun scripts/smoke.ts dist/release/faber-*-darwin-arm64.tar.gz
+      - name: Upgrade from the latest published release (and roll back)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern '*-darwin-arm64.tar.gz' --dir prev 2>/dev/null; then
+            bun scripts/smoke.ts dist/release/faber-*-darwin-arm64.tar.gz --upgrade-from prev/faber-*-darwin-arm64.tar.gz
+          else
+            echo "No published release yet: nothing to upgrade from"
+          fi
+      - name: Install with Homebrew from a local tap, like a user would
+        run: bash scripts/brew-local-test.sh dist/release
+      - name: Native launcher self-test
+        # Drives the real app (hotkey, keystrokes, crash recovery); hosted runners have a GUI
+        # session, but if one ever doesn't, this shouldn't block the build.
+        continue-on-error: true
+        run: bun run test:macos
+
+  linux:
+    name: Linux release build and smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts --targets linux-x64
+      - run: bun scripts/smoke.ts dist/release/faber-*-linux-x64.tar.gz

@@ -1,0 +1,150 @@
+name: Release
+
+# Push a tag like v0.2.0 (after `bun scripts/version.ts 0.2.0` and `bun scripts/fixture.ts`)
+# to build, test and publish a release, then update the Homebrew tap.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.2.0"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: "1.4.4"
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    name: Check the version and run the tests
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - id: v
+        name: The tag matches the version in the code
+        run: |
+          version="$(bun scripts/version.ts)"
+          if [ "v$version" != "$TAG" ]; then echo "Tag $TAG doesn't match version $version" >&2; exit 1; fi
+          test -f "packages/core/test/fixtures/v$version.sqlite.gz" || { echo "Missing upgrade fixture: run bun scripts/fixture.ts" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: bun run typecheck
+      - run: bun run test
+
+  macos:
+    name: Build macOS (Apple silicon + Intel)
+    needs: check
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts --strict --targets darwin-arm64,darwin-x64 --out dist/macos
+      - run: bun scripts/smoke.ts dist/macos/faber-*-darwin-arm64.tar.gz
+      - name: Upgrade from the previous release (and roll back)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern '*-darwin-arm64.tar.gz' --dir prev 2>/dev/null; then
+            bun scripts/smoke.ts dist/macos/faber-*-darwin-arm64.tar.gz --upgrade-from prev/faber-*-darwin-arm64.tar.gz
+          else
+            echo "First release: nothing to upgrade from"
+          fi
+      - name: Install with Homebrew, set up, uninstall
+        run: bash scripts/brew-local-test.sh dist/macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/macos/*.tar.gz
+            dist/macos/SHA256SUMS
+
+  linux:
+    name: Build Linux (x64 + arm64)
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts --strict --targets linux-x64,linux-arm64 --out dist/linux
+      - run: bun scripts/smoke.ts dist/linux/faber-*-linux-x64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/linux/*.tar.gz
+            dist/linux/SHA256SUMS
+
+  publish:
+    name: Publish the release and update Homebrew
+    needs: [check, macos, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect files
+        run: |
+          mkdir -p out
+          cp artifacts/macos/*.tar.gz artifacts/linux/*.tar.gz out/
+          cat artifacts/macos/SHA256SUMS artifacts/linux/SHA256SUMS > out/SHA256SUMS
+          bun scripts/formula.ts --version "$VERSION" --sums out/SHA256SUMS > out/faber.rb
+          (cd out && sha256sum -c SHA256SUMS)
+      - name: Create the GitHub release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* --title "Faber $VERSION" --generate-notes --verify-tag
+          fi
+      - name: Update the Homebrew tap
+        # Needs a fine-grained token with contents:write on asweeney86/homebrew-faber, saved as
+        # the TAP_GITHUB_TOKEN secret. Without it the tap's own scheduled workflow picks the
+        # new formula up from this release within the hour.
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::notice::No TAP_GITHUB_TOKEN secret; the tap will update itself from this release."
+            exit 0
+          fi
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/asweeney86/homebrew-faber.git" tap
+          mkdir -p tap/Formula
+          cp out/faber.rb tap/Formula/faber.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/faber.rb
+          git diff --cached --quiet || git commit -m "faber $VERSION"
+          git push

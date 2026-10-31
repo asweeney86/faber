@@ -102,8 +102,13 @@ import type {
 import { PAIRING_REQUIRED_MESSAGE } from "@faber/shared";
 import type { AppContext } from "./context";
 import { checkRequest, corsHeaders, effectiveMethod, extensionIdOf } from "./security";
+import indexPage from "../../web/index.html";
+import launcherPage from "../../web/launcher.html";
+// @ts-expect-error: a file import resolves to its path (embedded in compiled binaries).
+import faviconPath from "../../../brand/favicon.ico" with { type: "file" };
 
-export const VERSION = "0.1.0";
+export { VERSION } from "./version";
+import { VERSION } from "./version";
 
 const MAX_BODY = 8 * 1024 * 1024;
 const MAX_CONTENT_CHARS = 1_000_000;
@@ -687,22 +692,16 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
   });
 }
 
-/** The web UI, bundled by Bun from packages/web. If it fails to load, the API still works; say why. */
-let webRoutes: Record<string, Bun.HTMLBundle | Response> = {};
-try {
-  const mod = (await import("../../web/index.html")) as { default: Bun.HTMLBundle };
-  webRoutes = { "/": mod.default };
+/**
+ * The web UI and the launcher page, bundled by Bun from packages/web. Static imports, so
+ * `bun build --compile` embeds them (and the favicon) in the release binary.
+ */
+const webRoutes: Record<string, Bun.HTMLBundle | Response> = {
+  "/": indexPage,
+  // The launcher on its own page, for the native macOS launcher (packages/macos).
+  "/launcher": launcherPage,
   // Browsers ask for /favicon.ico on their own (e.g. for API responses opened directly).
-  const ico = Bun.file(new URL("../../../brand/favicon.ico", import.meta.url).pathname);
-  if (await ico.exists()) webRoutes["/favicon.ico"] = new Response(await ico.bytes(), { headers: { "content-type": "image/x-icon", "cache-control": "max-age=86400" } });
-} catch (err) {
-  console.error(`[web] UI unavailable: ${err instanceof Error ? err.message : err}`);
-}
-// The launcher on its own page, for the native macOS launcher (packages/macos). Separate, so a
-// problem here can't take the main UI down with it.
-try {
-  const launcher = (await import("../../web/launcher.html")) as { default: Bun.HTMLBundle };
-  webRoutes["/launcher"] = launcher.default;
-} catch (err) {
-  console.error(`[web] launcher page unavailable: ${err instanceof Error ? err.message : err}`);
-}
+  "/favicon.ico": new Response(await Bun.file(faviconPath).bytes(), {
+    headers: { "content-type": "image/x-icon", "cache-control": "max-age=86400" },
+  }),
+};

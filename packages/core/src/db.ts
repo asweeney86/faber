@@ -1,8 +1,18 @@
 import { Database } from "bun:sqlite";
-import { dirname } from "node:path";
-import { mkdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 
+/**
+ * The schema this build writes. Upgrade rules (see CONTRIBUTING.md, "Upgrades"):
+ * changes are additive (new tables, nullable or defaulted columns), so a database
+ * migrated by a newer Faber still opens in an older one. A change an older build
+ * can't live with must raise MIN_READER_VERSION to the new SCHEMA_VERSION.
+ */
 export const SCHEMA_VERSION = 4;
+/** The oldest schema an app must understand to use a database this build wrote. */
+export const MIN_READER_VERSION = 1;
+/** How many pre-upgrade backups to keep in <home>/backups. */
+export const KEEP_BACKUPS = 5;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -211,14 +221,105 @@ CREATE TABLE IF NOT EXISTS views (
 );
 `;
 
-export function openDatabase(path: string): Database {
-  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+export interface OpenOptions {
+  /** Where pre-upgrade backups go; defaults to "backups" next to the database. */
+  backupDir?: string;
+}
+
+/** The database was last written by a Faber too new for this one to use safely. */
+export class DatabaseTooNewError extends Error {
+  constructor(
+    readonly path: string,
+    readonly needs: number,
+  ) {
+    super(
+      `${path} was upgraded by a newer version of Faber (it needs schema ${needs}; this version knows ${SCHEMA_VERSION}). ` +
+        `Update Faber (brew upgrade faber), or restore the copy saved before that upgrade from ${join(dirname(path), "backups")}.`,
+    );
+  }
+}
+
+function readMeta(db: Database, key: string): number | null {
+  const hasMeta = db.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'`).get();
+  if (!hasMeta) return null;
+  const row = db.query<{ value: string }, [string]>(`SELECT value FROM meta WHERE key = ?`).get(key);
+  const n = row ? Number(row.value) : NaN;
+  return Number.isInteger(n) ? n : null;
+}
+
+/** Whether the file holds any of our tables (an empty file is a fresh database, not an upgrade). */
+function hasData(db: Database): boolean {
+  return !!db.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'documents'`).get();
+}
+
+/**
+ * Copy the database aside before migrating it, so an upgrade can always be undone.
+ * Called inside the migration's write lock: the copy is exactly what the old version
+ * left, and no other process can change it (or back it up again) meanwhile.
+ */
+export function backupDatabase(db: Database, dbPath: string, dir: string, label: string): string {
+  mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const unique = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  const target = join(dir, `${basename(dbPath).replace(/\.sqlite$/, "")}-${stamp}-${label}-${unique}.sqlite`);
+  writeFileSync(target, new Uint8Array(db.serialize()), { flag: "wx" });
+  const old = readdirSync(dir)
+    .filter((f) => f.endsWith(".sqlite"))
+    .sort()
+    .reverse()
+    .slice(KEEP_BACKUPS);
+  for (const f of old) rmSync(join(dir, f), { force: true });
+  return target;
+}
+
+function withBusyRetry(fn: () => void, timeoutMs = 10_000) {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return fn();
+    } catch (err) {
+      const busy = err instanceof Error && /SQLITE_BUSY|database is locked/.test(`${(err as { code?: string }).code} ${err.message}`);
+      if (!busy || Date.now() > until) throw err;
+      Bun.sleepSync(20 + Math.random() * 30);
+    }
+  }
+}
+
+export function openDatabase(path: string, opts: OpenOptions = {}): Database {
+  const file = path !== ":memory:";
+  if (file) mkdirSync(dirname(path), { recursive: true });
+  const existed = file && existsSync(path);
   const db = new Database(path, { create: true });
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
-  db.exec(SCHEMA);
-  migrate(db);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    // Switching a database to WAL can report "locked" without waiting for the busy timeout,
+    // when another process is opening it at the same moment; retry for a while.
+    withBusyRetry(() => db.exec("PRAGMA journal_mode = WAL"));
+    db.exec("PRAGMA foreign_keys = ON");
+    // Take the write lock before looking: when the daemon and a CLI command start together,
+    // one migrates (and backs up) while the other waits, then sees the finished result.
+    withBusyRetry(() => db.exec("BEGIN IMMEDIATE"));
+    try {
+      const stored = readMeta(db, "schema_version");
+      const needs = readMeta(db, "min_reader_version") ?? 1;
+      if (needs > SCHEMA_VERSION) throw new DatabaseTooNewError(path, needs);
+      const upgrading = existed && hasData(db) && (stored === null || stored < SCHEMA_VERSION);
+      if (upgrading) {
+        const saved = backupDatabase(db, path, opts.backupDir ?? join(dirname(path), "backups"), `schema${stored ?? 0}`);
+        console.error(`Upgrading your Faber database to schema ${SCHEMA_VERSION}; saved a copy first: ${saved}`);
+      }
+      // All or nothing: a failed migration leaves the database as the previous version left it.
+      db.exec(SCHEMA);
+      migrate(db, stored);
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (err) {
+    db.close();
+    throw err;
+  }
   return db;
 }
 
@@ -231,7 +332,7 @@ function hasColumn(db: Database, table: string, column: string): boolean {
  * from CREATE IF NOT EXISTS above; columns are added when missing, so this is
  * idempotent and safe even when the stored version is wrong or absent.
  */
-function migrate(db: Database) {
+function migrate(db: Database, stored: number | null) {
   const addColumn = (table: string, column: string, type: string) => {
     if (!hasColumn(db, table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   };
@@ -245,9 +346,11 @@ function migrate(db: Database) {
     rebuildFts(db);
   }
   db.exec("CREATE INDEX IF NOT EXISTS documents_fts_rowid ON documents(fts_rowid)");
-  db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [
-    String(SCHEMA_VERSION),
-  ]);
+  const setMeta = (key: string, value: number) =>
+    db.run("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, String(value)]);
+  // Never lower these: an older Faber opening a newer database must not hide what the newer one added.
+  setMeta("schema_version", Math.max(stored ?? 0, SCHEMA_VERSION));
+  setMeta("min_reader_version", Math.max(readMeta(db, "min_reader_version") ?? 1, MIN_READER_VERSION));
 }
 
 /** Recreate the full-text index from documents, recording each row's FTS rowid. */

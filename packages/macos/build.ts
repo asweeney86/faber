@@ -3,6 +3,7 @@
  * Build the native macOS launcher: packages/macos/build/Faber Launcher.app
  *
  *   bun run build:macos        (needs the Xcode command line tools: swiftc, iconutil, codesign)
+ *   FABER_MACOS_UNIVERSAL=1    build for Apple silicon and Intel in one app (releases do this)
  *
  * The app is ad-hoc signed, so it runs on this Mac. Open it once; it lives in the
  * menu bar and listens for ⌥Space (see Sources/main.swift for settings).
@@ -45,7 +46,7 @@ export function infoPlist(v: string): string {
 
 /** Every tool the build needs, or a message saying how to get them. */
 function missingTools(): string[] {
-  return ["swiftc", "iconutil", "codesign"].filter((tool) => {
+  return ["swiftc", "iconutil", "codesign", "lipo"].filter((tool) => {
     try {
       execFileSync("xcrun", ["--find", tool], { stdio: "ignore" });
       return false;
@@ -82,24 +83,32 @@ if (import.meta.main) {
   mkdirSync(join(contents, "MacOS"), { recursive: true });
   mkdirSync(join(contents, "Resources"), { recursive: true });
 
-  run("swiftc", [
-    "-O",
-    "-swift-version",
-    "5",
-    "-target",
-    `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos13.0`,
-    join(here, "Sources", "main.swift"),
-    "-o",
-    join(contents, "MacOS", "FaberLauncher"),
-    "-framework",
-    "Cocoa",
-    "-framework",
-    "WebKit",
-    "-framework",
-    "Carbon",
-    "-framework",
-    "ServiceManagement",
-  ]);
+  // Releases build for both Apple silicon and Intel (FABER_MACOS_UNIVERSAL=1) and merge them with lipo.
+  const archs = process.env.FABER_MACOS_UNIVERSAL === "1" ? ["arm64", "x86_64"] : [process.arch === "arm64" ? "arm64" : "x86_64"];
+  const binary = join(contents, "MacOS", "FaberLauncher");
+  const slices = archs.map((arch) => {
+    const outFile = archs.length === 1 ? binary : join(staging, `FaberLauncher-${arch}`);
+    run("swiftc", [
+      "-O",
+      "-swift-version",
+      "5",
+      "-target",
+      `${arch}-apple-macos13.0`,
+      join(here, "Sources", "main.swift"),
+      "-o",
+      outFile,
+      "-framework",
+      "Cocoa",
+      "-framework",
+      "WebKit",
+      "-framework",
+      "Carbon",
+      "-framework",
+      "ServiceManagement",
+    ]);
+    return outFile;
+  });
+  if (slices.length > 1) run("lipo", ["-create", ...slices, "-output", binary]);
   writeFileSync(join(contents, "Info.plist"), infoPlist(version));
 
   // App icon from the brand PNGs (bun run brand).

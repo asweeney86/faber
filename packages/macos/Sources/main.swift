@@ -14,6 +14,7 @@
 // Flags (for scripts and tests):
 //   --daemon <url>        use this daemon for this run
 //   --show                show the panel right away
+//   --login-item on|off   turn Open at login on or off (faber setup uses this)
 //   --snapshot <png>      show the panel, save an image of it once loaded, and quit
 //   --selftest            drive the app through its behaviours and print PASS/FAIL lines
 //                         (packages/macos/app.test.ts runs it against a live daemon)
@@ -201,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             hotkey = .fallback
             if !registerHotkey(hotkey) { NSLog("Faber Launcher: couldn't register ⌥Space either; use the menu bar icon") }
         }
+        if let want = argument("--login-item") { setLoginItem(want == "on") }
         buildMenu()
         buildMainMenu()
         load()
@@ -361,6 +363,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             NSLog("Faber Launcher: login item: \(error)")
         }
         item.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
+
+    /// For `faber setup`, which has already put the app in ~/Applications.
+    func setLoginItem(_ on: Bool) {
+        let enabled = SMAppService.mainApp.status == .enabled
+        do {
+            if on, !enabled { try SMAppService.mainApp.register() }
+            if !on, enabled { try SMAppService.mainApp.unregister() }
+        } catch {
+            NSLog("Faber Launcher: login item: \(error)")
+        }
+        if on, SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
     }
 
     // Clicking another app hides the launcher.

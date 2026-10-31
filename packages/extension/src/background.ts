@@ -31,6 +31,7 @@ import { cleanPageText, extractCalendarEventInPage, extractPageInPage, type Cale
 import { escapeOmnibox } from "./lib/format";
 import type { BgMessage, SaveTabResult } from "./lib/messages";
 import { Mutex } from "./lib/mutex";
+import { shouldReload } from "./lib/selfupdate";
 import { applyFlush, enqueueCapture, flushQueue, isPairingRequired, isRetryable, shrinkToFit, type QueuedCapture } from "./lib/queue";
 import { getItem, getSession, setItem, setSession, type ExtConfig } from "./lib/storage";
 import { LookupCache, iconPaths, isLookupUrl, statusFor, type LookupResult, type TabStatus } from "./lib/tabstate";
@@ -544,12 +545,31 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 chrome.runtime.onStartup.addListener(() => {
   ensureAlarms();
-  void refreshWatchlist();
+  void refreshWatchlist().then(checkForUpdate);
 });
 
+/** Pick up a newer copy of ourselves that the daemon put on disk after an upgrade. */
+async function checkForUpdate() {
+  try {
+    const status = await (await client()).status();
+    const self = await chrome.management.getSelf();
+    const check = {
+      installType: self.installType,
+      manifestVersion: chrome.runtime.getManifest().version,
+      daemonVersion: status.version ?? null,
+      reloadedFor: await getItem("reloadedFor"),
+    };
+    if (!shouldReload(check)) return;
+    await setItem("reloadedFor", check.daemonVersion);
+    chrome.runtime.reload();
+  } catch {
+    // Daemon unreachable: try again on the next sync.
+  }
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "faber-backfill") void flush().then(backfill);
-  if (alarm.name === "faber-sync") void refreshWatchlist().then((ok) => (ok ? flush() : undefined));
+  if (alarm.name === "faber-backfill") void flush().then(backfill).then(checkForUpdate);
+  if (alarm.name === "faber-sync") void refreshWatchlist().then((ok) => (ok ? flush() : undefined)).then(checkForUpdate);
   if (alarm.name === "faber-dwell") void syncForeground().then(checkDue);
 });
 
