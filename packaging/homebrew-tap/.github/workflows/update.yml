@@ -45,7 +45,7 @@ jobs:
         os: [macos-15, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: Homebrew/actions/setup-homebrew@master
+      - uses: Homebrew/actions/setup-homebrew@main
       - run: brew install asweeney86/faber/faber
       - run: brew test faber
       - run: faber version && faber help | head -3
