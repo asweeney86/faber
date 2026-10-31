@@ -17,7 +17,8 @@ import { join } from "node:path";
 import type { Layout } from "./layout";
 
 export const LAUNCHD_LABEL = "dev.faber.daemon";
-export const BREW_LABEL = "homebrew.mxcl.faber";
+/** Homebrew's names for the formula's service: newer versions use sh.brew.*, older homebrew.mxcl.*. */
+export const BREW_LABELS = ["sh.brew.faber", "homebrew.mxcl.faber"];
 export const SYSTEMD_UNIT = "faber.service";
 /** EX_TEMPFAIL: "restart me". Service definitions restart on non-zero exits only. */
 export const UPGRADE_EXIT_CODE = 75;
@@ -170,7 +171,10 @@ export function uninstallService(layout: Layout): string[] {
 export function serviceInstalled(layout: Layout): boolean {
   switch (serviceKind(layout)) {
     case "brew":
-      return existsSync(join(homedir(), "Library", "LaunchAgents", `${BREW_LABEL}.plist`)) || existsSync(join(systemdUnitPath(), "..", `homebrew.faber.service`));
+      return (
+        BREW_LABELS.some((l) => existsSync(join(homedir(), "Library", "LaunchAgents", `${l}.plist`))) ||
+        ["sh.brew.faber.service", "homebrew.faber.service"].some((u) => existsSync(join(systemdUnitPath(), "..", u)))
+      );
     case "launchd":
       return existsSync(launchAgentPath());
     case "systemd":
