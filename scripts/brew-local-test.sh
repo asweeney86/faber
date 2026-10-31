@@ -47,8 +47,11 @@ mkdir -p "$HOME/.faber"
 printf '[embed]\nprovider = "fake"\nmodel = "fake-embed"\n[enrich]\nprovider = "fake"\nmodel = "fake-enrich"\n' > "$HOME/.faber/config.toml"
 faber setup --yes --no-launcher --no-open
 echo "==> the service answers"
-curl -fsS http://127.0.0.1:7777/api/status | grep -q "\"version\":\"$version\""
-brew services list | grep -E '^faber\s+started'
+status_json="$(curl -fsS http://127.0.0.1:7777/api/status)"
+grep -q "\"version\":\"$version\"" <<<"$status_json"
+services="$(brew services list)"
+echo "$services"
+grep -Eq '^faber[[:space:]]+started' <<<"$services"
 echo "==> faber doctor"
 doctor_out="$(faber doctor || true)"
 echo "$doctor_out"
