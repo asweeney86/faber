@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { infoPlist } from "./build";
 
+// AppKit only exists on macOS (Linux CI runners have swiftc, but not Cocoa).
 const hasSwift = (() => {
+  if (process.platform !== "darwin") return false;
   try {
     execFileSync("swiftc", ["--version"], { stdio: "ignore" });
     return true;

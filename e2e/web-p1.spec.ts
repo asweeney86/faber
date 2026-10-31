@@ -226,7 +226,8 @@ test.describe("native launcher page (/launcher)", () => {
     await page.goto("/launcher");
     const input = page.getByTestId("launcher-input");
     await expect(input).toBeFocused();
-    await expect(page.getByTestId("launcher")).toContainText("⌥Space");
+    // The hint names the hotkey the platform's way: ⌥Space on a Mac, Alt+Space elsewhere.
+    await expect(page.getByTestId("launcher")).toContainText(/⌥Space|Alt\+Space/);
     await input.fill("rate limit design");
     await expect(page.getByTestId("launcher-item").first()).toContainText("Rate Limit Design");
     await page.waitForTimeout(300);
@@ -256,7 +257,7 @@ test.describe("native launcher page (/launcher)", () => {
     await page.goto("/launcher");
     await page.getByTestId("launcher-input").fill("frankfurt");
     await expect(page.getByTestId("launcher-item").first()).toBeVisible();
-    await expect(page.getByTestId("launcher")).not.toContainText("⌥Space");
+    await expect(page.getByTestId("launcher")).not.toContainText(/⌥Space|Alt\+Space/);
   });
 });
 
