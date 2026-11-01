@@ -4226,3 +4226,57 @@ button.tag:hover {
 .sidebar > * {
   flex-shrink: 0;
 }
+
+/* Settings → Shortcuts: global shortcuts */
+.shortcut-rows {
+  display: flex;
+  flex-direction: column;
+}
+.shortcut-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  grid-template-areas: "what keys actions" "help help help";
+  gap: 4px 16px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.shortcut-row:last-child {
+  border-bottom: none;
+}
+.shortcut-what {
+  grid-area: what;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shortcut-keys {
+  grid-area: keys;
+}
+.shortcut-actions {
+  grid-area: actions;
+  display: flex;
+  gap: 6px;
+}
+.shortcut-help {
+  grid-area: help;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.shortcut-help .warn {
+  color: var(--warning, var(--text-2));
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.shortcut-recorder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  font-size: 13px;
+}

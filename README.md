@@ -188,11 +188,12 @@ bun faber setup
 - Documents open in your default browser.
 - If the daemon isn't running, the panel says so, and it recovers by itself when the daemon comes back.
 
-To turn **Open at login** on or off, use the menu-bar icon. Other settings:
+To change the shortcut, open **Settings → Shortcuts** in the web app and press the new keys. The launcher switches within a few seconds. The same page shows the browser extension's shortcut; Chrome manages that one at `chrome://extensions/shortcuts`.
+
+To turn **Open at login** on or off, use the menu-bar icon. To use a daemon on another port:
 
 ```bash
-defaults write dev.faber.launcher hotkey "cmd+shift+space"           # another shortcut (then reopen the app)
-defaults write dev.faber.launcher daemonURL "http://127.0.0.1:7788"  # a daemon on another port
+defaults write dev.faber.launcher daemonURL "http://127.0.0.1:7788"
 ```
 
 ## Using it

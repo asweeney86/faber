@@ -33,6 +33,8 @@ interface LocalShape {
   backfillCooldownUntil: number;
   /** Daemon version we last reloaded for, after it updated our files (lib/selfupdate.ts). */
   reloadedFor: string | null;
+  /** daemonUrl|shortcut last reported to the daemon (lib/shortcut.ts), so it's sent only on change. */
+  reportedShortcut: string | null;
 }
 
 interface SessionShape {
@@ -50,6 +52,7 @@ const LOCAL_DEFAULTS: LocalShape = {
   lastBackfill: null,
   backfillCooldownUntil: 0,
   reloadedFor: null,
+  reportedShortcut: null,
 };
 
 export async function getItem<K extends keyof LocalShape>(key: K): Promise<LocalShape[K]> {

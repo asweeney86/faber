@@ -176,3 +176,37 @@ describe("watchlist rules", () => {
     expect(getSettings(db).watchlist.filter((r) => !r.builtin)).toEqual([]);
   });
 });
+
+describe("shortcuts", () => {
+  test("none saved: the launcher keeps whatever hotkey the Mac app already has", () => {
+    expect(getSettings(fresh()).shortcuts).toEqual({ launcher: null, launcher_active: null, browser: null });
+  });
+
+  test("a hotkey is stored canonically, and each field saves on its own", () => {
+    const db = fresh();
+    saveSettings(db, { shortcuts: { launcher: "Shift+Cmd+Space" } });
+    saveSettings(db, { shortcuts: { launcher_active: { label: "⌘⇧Space", ok: true, at: 1 } } });
+    saveSettings(db, { shortcuts: { browser: { label: "⇧⌘K", at: 2 } } });
+    expect(getSettings(db).shortcuts).toEqual({
+      launcher: "cmd+shift+space",
+      launcher_active: { label: "⌘⇧Space", ok: true, at: 1 },
+      browser: { label: "⇧⌘K", at: 2 },
+    });
+  });
+
+  test("a shortcut save leaves appearance and the watchlist alone", () => {
+    const db = fresh();
+    saveSettings(db, { appearance: LATTE });
+    saveSettings(db, { shortcuts: { launcher: "ctrl+option+k" } });
+    expect(getSettings(db).appearance).toEqual(LATTE);
+    expect(getSettings(db).watchlist.map((r) => r.id)).toEqual(BUILTIN_RULES.map((r) => r.id));
+  });
+
+  test("a hotkey Faber can't register is refused, and nothing else in the save is applied", () => {
+    const db = fresh();
+    expect(() => saveSettings(db, { appearance: LATTE, shortcuts: { launcher: "k" } })).toThrow(SettingsValidationError);
+    expect(() => saveSettings(db, { shortcuts: "cmd+k" as never })).toThrow(SettingsValidationError);
+    expect(getSettings(db).appearance).toEqual(DEFAULT_APPEARANCE);
+    expect(getSettings(db).shortcuts.launcher).toBeNull();
+  });
+});

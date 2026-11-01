@@ -219,7 +219,28 @@ test.describe("native launcher page (/launcher)", () => {
       (window as unknown as { webkit: unknown }).webkit = { messageHandlers: { faber: { postMessage: (m: unknown) => sent.push(m) } } };
     });
   }
-  const sent = (page: Page) => page.evaluate(() => (window as unknown as { __sent: { type: string; url?: string }[] }).__sent);
+  type Sent = { type: string; url?: string; value?: string | null };
+  const all = (page: Page) => page.evaluate(() => (window as unknown as { __sent: Sent[] }).__sent);
+  // Hotkey handoffs go out on every settings check; most tests are about the other messages.
+  const sent = async (page: Page) => (await all(page)).filter((m) => m.type !== "hotkey");
+
+  test("hands the saved hotkey to the app, and saves back what the app registered", async ({ page }) => {
+    const put = (shortcuts: object) => page.request.put("/api/settings", { data: { shortcuts } });
+    await put({ launcher: "ctrl+option+j", launcher_active: null });
+    try {
+      await withBridge(page);
+      await page.goto("/launcher");
+      await expect.poll(async () => (await all(page)).filter((m) => m.type === "hotkey")[0]).toEqual({ type: "hotkey", value: "ctrl+option+j" });
+      // The app answers with what it registered: the page shows it and saves it for Settings.
+      await page.evaluate(() => (window as unknown as { __faberHotkeyResult: (r: object) => void }).__faberHotkeyResult({ label: "⌃⌥J", spec: "ctrl+option+j", ok: true }));
+      await expect(page.getByTestId("launcher")).toContainText("⌃⌥J");
+      await expect
+        .poll(async () => (await (await page.request.get("/api/settings")).json()).shortcuts.launcher_active?.label)
+        .toBe("⌃⌥J");
+    } finally {
+      await put({ launcher: null, launcher_active: null });
+    }
+  });
 
   test("searching and Enter asks the app to open the doc, then to close", async ({ page }) => {
     await withBridge(page);

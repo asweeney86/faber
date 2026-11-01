@@ -1,5 +1,17 @@
 import type { Database } from "bun:sqlite";
-import { BUILTIN_RULES, normaliseAppearance, normalisePattern, normaliseWatchlist, type Appearance, type Settings, type SettingsUpdate, type WatchRule } from "@faber/shared";
+import {
+  BUILTIN_RULES,
+  normaliseAppearance,
+  normalisePattern,
+  normaliseShortcut,
+  normaliseShortcuts,
+  normaliseWatchlist,
+  type Appearance,
+  type Settings,
+  type SettingsUpdate,
+  type Shortcuts,
+  type WatchRule,
+} from "@faber/shared";
 import { now } from "./db";
 
 function getSetting<T>(db: Database, key: string): T | null {
@@ -19,6 +31,7 @@ export function getSettings(db: Database): Settings {
   return {
     watchlist: normaliseWatchlist(getSetting<WatchRule[]>(db, "watchlist")),
     appearance: normaliseAppearance(getSetting<Appearance>(db, "appearance")),
+    shortcuts: normaliseShortcuts(getSetting<Shortcuts>(db, "shortcuts")),
   };
 }
 
@@ -30,15 +43,26 @@ export class SettingsValidationError extends Error {}
  * (unknown values fall back to defaults).
  */
 export function saveSettings(db: Database, input: SettingsUpdate): Settings {
-  if (!input || typeof input !== "object" || (input.watchlist === undefined && input.appearance === undefined)) {
-    throw new SettingsValidationError("nothing to save: send watchlist and/or appearance");
+  if (!input || typeof input !== "object" || (input.watchlist === undefined && input.appearance === undefined && input.shortcuts === undefined)) {
+    throw new SettingsValidationError("nothing to save: send watchlist, appearance and/or shortcuts");
   }
   // All or nothing: a rejected watchlist must not leave a new appearance behind.
   db.transaction(() => {
     if (input.watchlist !== undefined) saveWatchlist(db, input.watchlist);
     if (input.appearance !== undefined) putSetting(db, "appearance", normaliseAppearance(input.appearance));
+    if (input.shortcuts !== undefined) saveShortcuts(db, input.shortcuts);
   })();
   return getSettings(db);
+}
+
+/** Merge into the stored shortcuts: each field given replaces that field only. */
+function saveShortcuts(db: Database, input: Partial<Shortcuts>) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new SettingsValidationError("shortcuts must be an object");
+  if (input.launcher != null && !normaliseShortcut(input.launcher)) {
+    throw new SettingsValidationError(`"${String(input.launcher)}" isn't a shortcut Faber can use: hold ⌘, ⌃, ⌥ or ⇧ and press a letter, number, Space, an arrow or an F-key`);
+  }
+  const current = normaliseShortcuts(getSetting<Shortcuts>(db, "shortcuts"));
+  putSetting(db, "shortcuts", normaliseShortcuts({ ...current, ...input }));
 }
 
 function saveWatchlist(db: Database, watchlist: WatchRule[]) {

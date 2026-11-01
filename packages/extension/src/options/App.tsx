@@ -11,6 +11,7 @@ import {
 import { relativeTime } from "../lib/format";
 import { sendToBackground } from "../lib/messages";
 import { validateNewPattern } from "../lib/rules";
+import { launcherShortcut } from "../lib/shortcut";
 import { isPairingRequired } from "../lib/queue";
 import { clampDwell, getItem, normaliseDaemonUrl, setItem, type BackfillState, type ExtConfig, type SyncState } from "../lib/storage";
 import { BrandMark, Icon, Switch } from "../ui/components";
@@ -42,6 +43,11 @@ async function requestOrigins(pattern: string): Promise<boolean> {
 export function App() {
   const [cfg, setCfg] = useState<ExtConfig | null>(null);
   const [urlInput, setUrlInput] = useState("");
+  // undefined while loading; null = the user removed it in Chrome.
+  const [shortcut, setShortcut] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    launcherShortcut().then(setShortcut, () => {});
+  }, []);
   const [dwellInput, setDwellInput] = useState("4");
   const [conn, setConn] = useState<ConnState>({ kind: "idle" });
   const [rules, setRules] = useState<WatchRule[]>([]);
@@ -436,11 +442,14 @@ export function App() {
       </section>
 
       <footer className="opt-footer faint">
-        Shortcut:{" "}
-        {(IS_MAC ? ["⌘", "⇧", "K"] : ["Ctrl", "Shift", "K"]).map((k) => (
-          <kbd key={k}>{k}</kbd>
-        ))}{" "}
-        opens search · type <code>faber</code> + space in the address bar ·{" "}
+        {shortcut === null ? (
+          <>No shortcut set for search · </>
+        ) : (
+          <>
+            Shortcut: <kbd>{shortcut ?? (IS_MAC ? "⌘⇧K" : "Ctrl+Shift+K")}</kbd> opens search ·{" "}
+          </>
+        )}
+        type <code>faber</code> + space in the address bar ·{" "}
         <a href="#" onClick={(e) => (e.preventDefault(), chrome.tabs.create({ url: "chrome://extensions/shortcuts" }))}>
           change shortcut
         </a>

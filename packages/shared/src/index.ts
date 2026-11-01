@@ -6,3 +6,4 @@ export * from "./brand";
 export * from "./theme";
 export * from "./format";
 export * from "./views";
+export * from "./shortcuts";

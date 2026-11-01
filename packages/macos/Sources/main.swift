@@ -7,7 +7,9 @@
 // default browser; Esc or clicking elsewhere hides the panel.
 //
 // The hotkey uses Carbon's RegisterEventHotKey, which needs no Accessibility
-// permission. Settings live in `defaults` (domain dev.faber.launcher):
+// permission. Change it in Faber's Settings → Shortcuts: the page passes the saved hotkey
+// to the app, which re-registers it and remembers it in `defaults` (domain dev.faber.launcher).
+// The defaults can also be set by hand:
 //   defaults write dev.faber.launcher daemonURL http://127.0.0.1:7777
 //   defaults write dev.faber.launcher hotkey "cmd+shift+space"   (modifiers: cmd, ctrl, option, shift)
 //
@@ -88,39 +90,63 @@ struct Hotkey {
     let keyCode: UInt32
     let modifiers: UInt32
     let label: String
+    /// Canonical text ("cmd+shift+space"): the format the daemon stores (packages/shared/src/shortcuts.ts).
+    let spec: String
 
-    static let fallback = Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), label: "⌥Space")
+    static let fallback = Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), label: "⌥Space", spec: "option+space")
 
-    /// "option+space", "cmd+shift+k"… Unknown input falls back to ⌥Space.
-    static func parse(_ text: String?) -> Hotkey {
-        guard let text, !text.isEmpty else { return fallback }
-        var mods: UInt32 = 0
-        var label = ""
-        var key: UInt32?
-        var keyLabel = ""
-        for part in text.lowercased().split(separator: "+").map({ String($0).trimmingCharacters(in: .whitespaces) }) {
+    /// "option+space", "cmd+shift+k", "ctrl+f5"… Unknown input falls back to ⌥Space.
+    static func parse(_ text: String?) -> Hotkey { parseStrict(text) ?? fallback }
+
+    /// nil for anything that isn't one key plus modifiers (an F-key may stand alone).
+    static func parseStrict(_ text: String?) -> Hotkey? {
+        guard let text, !text.isEmpty else { return nil }
+        var mods = Set<String>()
+        var key: (code: UInt32, name: String)?
+        for part in text.lowercased().split(separator: "+", omittingEmptySubsequences: false).map({ String($0).trimmingCharacters(in: .whitespaces) }) {
             switch part {
-            case "cmd", "command": mods |= UInt32(cmdKey); label += "⌘"
-            case "ctrl", "control": mods |= UInt32(controlKey); label += "⌃"
-            case "opt", "option", "alt": mods |= UInt32(optionKey); label += "⌥"
-            case "shift": mods |= UInt32(shiftKey); label += "⇧"
-            case "space": key = UInt32(kVK_Space); keyLabel = "Space"
+            case "cmd", "command", "meta": mods.insert("cmd")
+            case "ctrl", "control": mods.insert("ctrl")
+            case "opt", "option", "alt": mods.insert("option")
+            case "shift": mods.insert("shift")
             default:
-                if let code = letterCodes[part] { key = code; keyLabel = part.uppercased() }
+                guard key == nil, let code = keyCodes[part] else { return nil }
+                key = (code, part)
             }
         }
-        guard let key, mods != 0 else { return fallback }
-        return Hotkey(keyCode: key, modifiers: mods, label: label + keyLabel)
+        guard let key, !mods.isEmpty || key.name.hasPrefix("f") && key.name.count > 1 else { return nil }
+        let order: [(String, Int, String)] = [("cmd", cmdKey, "⌘"), ("ctrl", controlKey, "⌃"), ("option", optionKey, "⌥"), ("shift", shiftKey, "⇧")]
+        var bits: UInt32 = 0
+        var label = ""
+        var spec: [String] = []
+        for (name, bit, symbol) in order where mods.contains(name) {
+            bits |= UInt32(bit)
+            label += symbol
+            spec.append(name)
+        }
+        spec.append(key.name)
+        return Hotkey(keyCode: key.code, modifiers: bits, label: label + (keyLabels[key.name] ?? key.name.uppercased()), spec: spec.joined(separator: "+"))
     }
 
-    static let letterCodes: [String: UInt32] = [
-        "a": UInt32(kVK_ANSI_A), "b": UInt32(kVK_ANSI_B), "c": UInt32(kVK_ANSI_C), "d": UInt32(kVK_ANSI_D), "e": UInt32(kVK_ANSI_E),
-        "f": UInt32(kVK_ANSI_F), "g": UInt32(kVK_ANSI_G), "h": UInt32(kVK_ANSI_H), "i": UInt32(kVK_ANSI_I), "j": UInt32(kVK_ANSI_J),
-        "k": UInt32(kVK_ANSI_K), "l": UInt32(kVK_ANSI_L), "m": UInt32(kVK_ANSI_M), "n": UInt32(kVK_ANSI_N), "o": UInt32(kVK_ANSI_O),
-        "p": UInt32(kVK_ANSI_P), "q": UInt32(kVK_ANSI_Q), "r": UInt32(kVK_ANSI_R), "s": UInt32(kVK_ANSI_S), "t": UInt32(kVK_ANSI_T),
-        "u": UInt32(kVK_ANSI_U), "v": UInt32(kVK_ANSI_V), "w": UInt32(kVK_ANSI_W), "x": UInt32(kVK_ANSI_X), "y": UInt32(kVK_ANSI_Y),
-        "z": UInt32(kVK_ANSI_Z),
-    ]
+    static let keyLabels = ["space": "Space", "left": "←", "right": "→", "up": "↑", "down": "↓"]
+
+    static let keyCodes: [String: UInt32] = {
+        var m: [String: UInt32] = [
+            "a": UInt32(kVK_ANSI_A), "b": UInt32(kVK_ANSI_B), "c": UInt32(kVK_ANSI_C), "d": UInt32(kVK_ANSI_D), "e": UInt32(kVK_ANSI_E),
+            "f": UInt32(kVK_ANSI_F), "g": UInt32(kVK_ANSI_G), "h": UInt32(kVK_ANSI_H), "i": UInt32(kVK_ANSI_I), "j": UInt32(kVK_ANSI_J),
+            "k": UInt32(kVK_ANSI_K), "l": UInt32(kVK_ANSI_L), "m": UInt32(kVK_ANSI_M), "n": UInt32(kVK_ANSI_N), "o": UInt32(kVK_ANSI_O),
+            "p": UInt32(kVK_ANSI_P), "q": UInt32(kVK_ANSI_Q), "r": UInt32(kVK_ANSI_R), "s": UInt32(kVK_ANSI_S), "t": UInt32(kVK_ANSI_T),
+            "u": UInt32(kVK_ANSI_U), "v": UInt32(kVK_ANSI_V), "w": UInt32(kVK_ANSI_W), "x": UInt32(kVK_ANSI_X), "y": UInt32(kVK_ANSI_Y),
+            "z": UInt32(kVK_ANSI_Z),
+            "0": UInt32(kVK_ANSI_0), "1": UInt32(kVK_ANSI_1), "2": UInt32(kVK_ANSI_2), "3": UInt32(kVK_ANSI_3), "4": UInt32(kVK_ANSI_4),
+            "5": UInt32(kVK_ANSI_5), "6": UInt32(kVK_ANSI_6), "7": UInt32(kVK_ANSI_7), "8": UInt32(kVK_ANSI_8), "9": UInt32(kVK_ANSI_9),
+            "space": UInt32(kVK_Space),
+            "left": UInt32(kVK_LeftArrow), "right": UInt32(kVK_RightArrow), "up": UInt32(kVK_UpArrow), "down": UInt32(kVK_DownArrow),
+        ]
+        let f = [kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10, kVK_F11, kVK_F12]
+        for (i, code) in f.enumerated() { m["f\(i + 1)"] = UInt32(code) }
+        return m
+    }()
 }
 
 var hotkeyHandler: (() -> Void)?
@@ -184,6 +210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var panel: LauncherPanel!
     var web: WKWebView!
     var status: NSStatusItem!
+    var openItem: NSMenuItem!
+    /// The page has been told which hotkey is registered since it last loaded.
+    var hotkeyReported = false
     var hotkey = Hotkey.parse(defaults.string(forKey: "hotkey"))
     var loaded = false
     var loading = false
@@ -252,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             button.toolTip = "Faber Launcher (\(hotkey.label))"
         }
         let menu = NSMenu()
-        menu.addItem(withTitle: "Open launcher  \(hotkey.label)", action: #selector(showFromMenu), keyEquivalent: "")
+        openItem = menu.addItem(withTitle: "Open launcher  \(hotkey.label)", action: #selector(showFromMenu), keyEquivalent: "")
         menu.addItem(withTitle: "Open Faber", action: #selector(openApp), keyEquivalent: "")
         menu.addItem(.separator())
         let login = NSMenuItem(title: "Open at login", action: #selector(toggleLogin(_:)), keyEquivalent: "")
@@ -283,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     func load() {
+        hotkeyReported = false
         loaded = false
         loading = true
         offlineShown = false
@@ -401,9 +431,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
         case "close":
             hide()
+        case "hotkey":
+            setHotkey(body["value"] as? String)
         default:
             break
         }
+    }
+
+    // MARK: hotkey changes (Settings → Shortcuts, through the daemon)
+
+    /// The page passes the hotkey saved in Faber's settings on every settings check. nil = none
+    /// saved: keep what this Mac already has (the default, or an old `defaults write`).
+    /// Replies once per page load, and after every change, with what's actually registered.
+    func setHotkey(_ value: String?) {
+        var ok = true
+        if let value, let want = Hotkey.parseStrict(value), want.spec != hotkey.spec {
+            if registerHotkey(want) {
+                hotkey = want
+                // Remembered here too, so the next launch has it before the daemon answers.
+                if selfTest == nil { defaults.set(want.spec, forKey: "hotkey") }
+                status.button?.toolTip = "Faber Launcher (\(hotkey.label))"
+                openItem.title = "Open launcher  \(hotkey.label)"
+            } else {
+                NSLog("Faber Launcher: couldn't register \(want.label); keeping \(hotkey.label)")
+                _ = registerHotkey(hotkey)
+                ok = false
+            }
+        } else if hotkeyReported {
+            return
+        }
+        hotkeyReported = true
+        let wanted = value.flatMap { Hotkey.parseStrict($0)?.label } ?? hotkey.label
+        let result: [String: Any] = ["label": hotkey.label, "spec": hotkey.spec, "ok": ok, "wanted": wanted]
+        guard let data = try? JSONSerialization.data(withJSONObject: result), let json = String(data: data, encoding: .utf8) else { return }
+        web.evaluateJavaScript("window.__faberHotkeyResult && window.__faberHotkeyResult(\(json))")
     }
 
     // MARK: loading
@@ -592,6 +653,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         check("a non-http daemonURL is ignored", resolveDaemonURL(["file:///etc", "javascript:alert(1)"]).absoluteString == "http://127.0.0.1:7777")
         check("a daemonURL host is matched case-insensitively", resolveDaemonURL(["http://LOCALHOST:7777/"]).absoluteString == "http://localhost:7777")
         check("hotkey text parses", Hotkey.parse("cmd+shift+k").label == "⌘⇧K" && Hotkey.parse("nonsense").label == "⌥Space")
+        check("hotkey text is made canonical", Hotkey.parse("Shift + Command + Space").spec == "cmd+shift+space")
+        check("digits, F-keys and arrows parse", Hotkey.parse("ctrl+option+7").label == "⌃⌥7" && Hotkey.parse("f5").label == "F5" && Hotkey.parse("cmd+left").label == "⌘←")
+        check("a bare letter or two keys is refused", Hotkey.parseStrict("k") == nil && Hotkey.parseStrict("cmd+k+j") == nil && Hotkey.parseStrict("cmd++k") == nil)
 
         // 1. The hotkey shows the panel, focused on the search box.
         check("starts hidden", !app.panel.isVisible)
@@ -681,6 +745,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         await sleep(1.5)
         check("non-web URLs and subframe messages are ignored", opened.count == n, "\(opened.suffix(from: n))")
         check("…and the panel is still showing", app.panel.isVisible)
+
+        // 8b. Settings → Shortcuts: the page hands over a new hotkey, the app switches to it.
+        let original = app.hotkey.spec
+        _ = await js("(() => { const f = document.createElement('iframe'); f.src = '/launcher?frame=2'; f.onload = () => f.contentWindow.webkit.messageHandlers.faber.postMessage({ type: 'hotkey', value: 'cmd+shift+8' }); document.body.append(f); return 'ok' })()")
+        await sleep(1)
+        check("a subframe can't change the hotkey", app.hotkey.spec == original, app.hotkey.spec)
+        _ = await js("(window.__hk = null, window.__faberHotkeyResult = (r) => { window.__hk = r }, webkit.messageHandlers.faber.postMessage({ type: 'hotkey', value: 'cmd+shift+9' }), 'ok')")
+        check("the page can change the hotkey", await until { self.app.hotkey.spec == "cmd+shift+9" }, app.hotkey.spec)
+        check("…and the menu shows it", app.openItem.title.hasSuffix("⌘⇧9"), app.openItem.title)
+        check("…and the page hears what's registered", await until { await self.js("window.__hk && window.__hk.label + ' ' + window.__hk.ok") == "⌘⇧9 true" })
+        app.hide()
+        pressHotkey()
+        check("the new hotkey shows the launcher", await shown())
+        _ = await js("(webkit.messageHandlers.faber.postMessage({ type: 'hotkey', value: '\(original)' }), 'ok')")
+        check("…and it can be changed back", await until { self.app.hotkey.spec == original }, app.hotkey.spec)
 
         // 9. The daemon goes away, then comes back.
         app.hide()

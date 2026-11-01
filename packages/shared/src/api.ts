@@ -1,4 +1,5 @@
 import type { Appearance } from "./theme";
+import type { Shortcuts } from "./shortcuts";
 /**
  * Wire types for the daemon HTTP API. The extension and web UI import these;
  * the daemon implements them. Keep this file free of runtime code.
@@ -507,10 +508,12 @@ export interface Settings {
   watchlist: WatchRule[];
   /** Theme, accent and density, shared by the app, the launcher and the extension. */
   appearance: Appearance;
+  /** Global shortcuts: the Mac launcher's hotkey, and what each app reports it has. */
+  shortcuts: Shortcuts;
 }
 
-/** PUT /api/settings: any subset; omitted sections are left as they are. */
-export type SettingsUpdate = Partial<Settings>;
+/** PUT /api/settings: any subset; omitted sections (and omitted shortcut fields) are left as they are. */
+export type SettingsUpdate = Partial<Omit<Settings, "shortcuts">> & { shortcuts?: Partial<Shortcuts> };
 
 /** A Chrome extension's access to the daemon. "config" = allowed in config.toml. */
 export interface ExtensionAccess {

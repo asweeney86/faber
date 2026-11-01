@@ -472,7 +472,7 @@ async function setupLauncher(deps: SetupDeps, cfg: Config) {
   const login = await io.confirm("Start the launcher when you log in?", true);
   host.open(dest, ["--args", "--login-item", login ? "on" : "off"]);
   io.line(`  ${OK} ${r === "current" ? "Installed" : r === "updated" ? "Updated" : "Installed"} ${tilde(dest)} (${appVersion(dest)})${login ? ", opens at login" : ""}`);
-  io.line(dim(`    Press ⌥Space anywhere to search. Change the shortcut: defaults write dev.faber.launcher hotkey "cmd+shift+space"`));
+  io.line(dim(`    Press ⌥Space anywhere to search. Change the shortcut in Faber: Settings → Shortcuts.`));
 }
 
 async function setupSources(deps: SetupDeps) {

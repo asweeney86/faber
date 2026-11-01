@@ -215,6 +215,66 @@ test.describe("settings", () => {
     });
   }
 
+  test("Settings → Shortcuts records a new Mac launcher hotkey and shows what each app has", async ({ page }) => {
+    const put = (shortcuts: object) => page.request.put("/api/settings", { data: { shortcuts } });
+    const clear = { launcher: null, launcher_active: null, browser: null };
+    await put(clear);
+    // The Mac row only shows on a Mac.
+    await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "platform", { get: () => "MacIntel" }));
+    try {
+      await page.goto("/#/settings/shortcuts");
+      const row = page.getByTestId("launcher-hotkey");
+      await expect(row.getByTestId("hotkey-current")).toHaveText("⌥Space");
+      await expect(row.getByTestId("hotkey-status")).toContainText("hasn’t connected");
+
+      // Esc cancels recording.
+      await row.getByTestId("hotkey-change").click();
+      await expect(row.getByTestId("hotkey-recorder")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(row.getByTestId("hotkey-current")).toHaveText("⌥Space");
+
+      // A reserved shortcut gets a warning before saving.
+      await row.getByTestId("hotkey-change").click();
+      await page.keyboard.press("Control+Space");
+      await expect(row.getByTestId("hotkey-candidate")).toHaveText("⌃Space");
+      await expect(row.getByTestId("hotkey-status")).toContainText("input sources");
+      await row.getByRole("button", { name: "Cancel" }).click();
+
+      await row.getByTestId("hotkey-change").click();
+      await page.keyboard.press("Control+Alt+KeyJ");
+      await expect(row.getByTestId("hotkey-candidate")).toHaveText("⌃⌥J");
+      await row.getByTestId("hotkey-save").click();
+      await expect(row.getByTestId("hotkey-current")).toHaveText("⌃⌥J");
+      expect((await (await page.request.get("/api/settings")).json()).shortcuts.launcher).toBe("ctrl+option+j");
+
+      // What the Mac app reports back (the launcher page does this inside the app).
+      await put({ launcher_active: { label: "⌥Space", ok: true, at: Date.now() } });
+      await page.reload();
+      await expect(row.getByTestId("hotkey-status")).toContainText("Switching the launcher to ⌃⌥J");
+      await put({ launcher_active: { label: "⌃⌥J", ok: true, at: Date.now() } });
+      await page.reload();
+      await expect(row.getByTestId("hotkey-status")).toContainText("Active in Faber Launcher");
+      await put({ launcher_active: { label: "⌥Space", ok: false, at: Date.now() } });
+      await page.reload();
+      await expect(row.getByTestId("hotkey-status")).toContainText("another app already has it");
+
+      await row.getByTestId("hotkey-reset").click();
+      await expect(row.getByTestId("hotkey-current")).toHaveText("⌥Space");
+      await expect(row.getByTestId("hotkey-reset")).toHaveCount(0);
+
+      // The browser shortcut is whatever the extension says Chrome has.
+      await expect(page.getByTestId("browser-shortcut")).toContainText("⌘⇧K");
+      await put({ browser: { label: "⌥⇧F", at: Date.now() } });
+      await page.reload();
+      await expect(page.getByTestId("browser-shortcut")).toContainText("⌥⇧F");
+      await put({ browser: { label: "", at: Date.now() } });
+      await page.reload();
+      await expect(page.getByTestId("browser-shortcut")).toContainText("Not set");
+    } finally {
+      await put(clear);
+    }
+  });
+
   test("#/settings pins the default section in the URL without adding a history entry", async ({ page }) => {
     await page.goto("/#/people");
     await page.goto("/#/settings");

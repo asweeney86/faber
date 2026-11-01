@@ -8,6 +8,7 @@ import { isOpenableUrl } from "../lib/format";
 import { LAUNCHER_CLOSE } from "../lib/messages";
 import { redeemLauncherTicket } from "../lib/launcher";
 import { isPairingRequired } from "../lib/queue";
+import { launcherShortcut } from "../lib/shortcut";
 import { getItem, type ExtConfig } from "../lib/storage";
 
 /**
@@ -39,6 +40,11 @@ async function openTab(url: string, newTab: boolean) {
 function App() {
   const [cfg, setCfg] = useState<ExtConfig | null>(null);
   const [problem, setProblem] = useState<"offline" | "pairing" | null>(null);
+  // The shortcut that opened this, as Chrome has it (the user may have changed it).
+  const [shortcut, setShortcut] = useState<string | undefined>(IS_MAC ? "⌘⇧K" : "Ctrl+Shift+K");
+  useEffect(() => {
+    launcherShortcut().then((s) => setShortcut(s ?? undefined), () => {});
+  }, []);
   useEffect(() => {
     // Only a launch the service worker started gets data (see redeemLauncherTicket).
     void redeemLauncherTicket(chrome.storage.session, params.get("t"), overlay ? "overlay" : "window").then((ticket) => {
@@ -61,13 +67,13 @@ function App() {
       client && cfg
         ? {
             client,
-            shortcut: IS_MAC ? "⌘⇧K" : "Ctrl+Shift+K",
+            shortcut,
             close,
             openUrl: (url, { newTab }) => void openTab(url, newTab),
             openApp: (route) => void openTab(`${cfg.daemonUrl}/#${route}`, true),
           }
         : null,
-    [client, cfg],
+    [client, cfg, shortcut],
   );
 
   const body = !host ? null : problem ? (

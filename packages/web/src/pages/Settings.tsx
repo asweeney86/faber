@@ -7,6 +7,10 @@ import {
   flavorSwatches,
   normalisePattern,
   parsePattern,
+  DEFAULT_LAUNCHER_HOTKEY,
+  shortcutFromEvent,
+  shortcutLabel,
+  shortcutWarning,
   SUGGESTED_SOURCES,
   type Appearance,
   type ExtensionAccess,
@@ -16,7 +20,7 @@ import {
   type ThemeChoice,
   type WatchRule,
 } from "@faber/shared";
-import { FaberIcon } from "@faber/ui";
+import { FaberIcon, IS_MAC } from "@faber/ui";
 import { api, emitChange, fullDate, navigate, plural, relativeTime, useAsync } from "../lib";
 import { useAppearanceState } from "../appearance";
 import {
@@ -226,6 +230,10 @@ function AppearanceSection() {
 // ---------- Shortcuts ----------
 
 function ShortcutsSection() {
+  const settings = useAsync(() => api.settings(), []);
+  const browser = settings.data?.shortcuts.browser;
+  // Chrome reports "" when the user removed the shortcut.
+  const browserKey = browser ? browser.label || null : IS_MAC ? "⌘⇧K" : "Ctrl+Shift+K";
   const rows: [string, string][] = [
     ["⌘K", "Open the launcher"],
     ["/", "Go to search"],
@@ -243,6 +251,32 @@ function ShortcutsSection() {
   ];
   return (
     <>
+      <section className="card settings-section" data-testid="global-shortcuts">
+        <header className="settings-head">
+          <h3>Open Faber from anywhere</h3>
+          <p className="muted">Shortcuts that work in every app, not just here.</p>
+        </header>
+        {settings.error && !settings.data && <ErrorBanner error={settings.error} onRetry={settings.reload} />}
+        {!settings.data && !settings.error && <Spinner />}
+        {settings.data && (
+          <div className="shortcut-rows">
+            {IS_MAC && <LauncherHotkeyRow settings={settings.data} onSaved={settings.reload} />}
+            <div className="shortcut-row" data-testid="browser-shortcut">
+              <div className="shortcut-what">
+                <strong>Browser launcher</strong>
+                <span className="muted small">Search over the page you’re on (Faber browser extension). Chrome manages this shortcut.</span>
+              </div>
+              <div className="shortcut-keys">{browserKey ? <kbd>{browserKey}</kbd> : <span className="muted small">Not set</span>}</div>
+              <div className="shortcut-actions">
+                <CopyButton text="chrome://extensions/shortcuts" label="Copy Chrome’s shortcuts page" />
+              </div>
+              <p className="muted small shortcut-help">
+                Paste <code>chrome://extensions/shortcuts</code> into the address bar and change “Open the Faber launcher”.
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
       <section className="card settings-section" data-testid="shortcuts">
         <header className="settings-head">
           <h3>In the app</h3>
@@ -251,20 +285,157 @@ function ShortcutsSection() {
       </section>
       <section className="card settings-section">
         <header className="settings-head">
-          <h3>Launcher</h3>
-          <p className="muted">The same launcher opens with ⌘K here and, with the browser extension, from any page: ⌘⇧K by default.</p>
+          <h3>In the launcher</h3>
+          <p className="muted">The same launcher opens with ⌘K here{browserKey ? <>, and with {browserKey} from any page in the browser</> : null}.</p>
         </header>
         <KeyTable rows={launcher} />
       </section>
-      <section className="card settings-section">
-        <header className="settings-head">
-          <h3>Change the browser shortcut</h3>
-          <p className="muted">
-            Chrome manages extension shortcuts. Open <code>chrome://extensions/shortcuts</code> and set “Open the Faber launcher” to any combination you like.
-          </p>
-        </header>
-      </section>
     </>
+  );
+}
+
+/** The Mac launcher's system-wide hotkey: shows what the app registered, and records a new one. */
+function LauncherHotkeyRow({ settings, onSaved }: { settings: Settings; onSaved: () => void }) {
+  const { launcher, launcher_active: active } = settings.shortcuts;
+  const [recording, setRecording] = useState(false);
+  const [candidate, setCandidate] = useState<string | null>(null);
+  const [held, setHeld] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<Error | null>(null);
+  // Nothing saved yet: the app keeps what this Mac already had (maybe an old `defaults write`).
+  const wanted = launcher ? shortcutLabel(launcher) : (active?.label ?? shortcutLabel(DEFAULT_LAUNCHER_HOTKEY));
+  // The app picks the change up within a few seconds; until then it still has the old one.
+  const pending = active && launcher !== null && active.ok && active.label !== wanted;
+
+  useEffect(() => {
+    if (!recording) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.type === "keydown" && e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        setRecording(false);
+        setCandidate(null);
+        return;
+      }
+      const mods = `${e.metaKey ? "⌘" : ""}${e.ctrlKey ? "⌃" : ""}${e.altKey ? "⌥" : ""}${e.shiftKey ? "⇧" : ""}`;
+      setHeld(mods);
+      if (e.type !== "keydown") return;
+      const sc = shortcutFromEvent(e);
+      if (sc) {
+        setCandidate(sc);
+        setRecording(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKey, true);
+    };
+  }, [recording]);
+
+  const save = async (value: string) => {
+    setSaving(true);
+    setErr(null);
+    try {
+      await api.saveSettings({ shortcuts: { launcher: value } });
+      setCandidate(null);
+      onSaved();
+    } catch (e) {
+      setErr(e as Error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const warning = candidate ? shortcutWarning(candidate) : null;
+  return (
+    <div className="shortcut-row" data-testid="launcher-hotkey">
+      <div className="shortcut-what">
+        <strong>Mac launcher</strong>
+        <span className="muted small">Search from any app (Faber Launcher in the menu bar).</span>
+      </div>
+      <div className="shortcut-keys">
+        {recording ? (
+          <span className="shortcut-recorder" data-testid="hotkey-recorder">
+            {held ? <kbd>{held}</kbd> : null} Press the new shortcut… <span className="faint">(Esc to cancel)</span>
+          </span>
+        ) : candidate ? (
+          <kbd data-testid="hotkey-candidate">{shortcutLabel(candidate)}</kbd>
+        ) : (
+          <kbd data-testid="hotkey-current">{wanted}</kbd>
+        )}
+      </div>
+      <div className="shortcut-actions">
+        {candidate ? (
+          <>
+            <button className="btn btn-ghost btn-sm" onClick={() => setCandidate(null)} disabled={saving}>
+              Cancel
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => void save(candidate)} disabled={saving} data-testid="hotkey-save">
+              {saving ? <Spinner size={12} /> : null} Save
+            </button>
+          </>
+        ) : (
+          <>
+            {wanted !== shortcutLabel(DEFAULT_LAUNCHER_HOTKEY) && !recording && (
+              <button className="btn btn-ghost btn-sm" onClick={() => void save(DEFAULT_LAUNCHER_HOTKEY)} disabled={saving} data-testid="hotkey-reset">
+                Reset to {shortcutLabel(DEFAULT_LAUNCHER_HOTKEY)}
+              </button>
+            )}
+            <button
+              className="btn btn-sm"
+              onClick={() => {
+                setHeld("");
+                setRecording((r) => !r);
+              }}
+              data-testid="hotkey-change"
+            >
+              {recording ? "Cancel" : "Change…"}
+            </button>
+          </>
+        )}
+      </div>
+      <p className="muted small shortcut-help" data-testid="hotkey-status">
+        {warning ? (
+          <span className="warn">
+            <IconAlert size={13} /> {warning}. Pick something else, or save it anyway.
+          </span>
+        ) : !active ? (
+          <>
+            The Faber Launcher app hasn’t connected yet. Install it with <code>faber setup</code>; it picks this shortcut up when it starts.
+          </>
+        ) : !active.ok ? (
+          <span className="warn">
+            <IconAlert size={13} /> Couldn’t use {wanted}: another app already has it. The launcher is still on {active.label}.
+          </span>
+        ) : pending ? (
+          <>Switching the launcher to {wanted}…</>
+        ) : (
+          <>
+            <IconCheck size={13} /> Active in Faber Launcher.
+          </>
+        )}
+      </p>
+      {err && <ErrorBanner error={err} />}
+    </div>
+  );
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="btn btn-ghost btn-sm"
+      onClick={() =>
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        })
+      }
+    >
+      {copied ? "Copied" : label}
+    </button>
   );
 }
 

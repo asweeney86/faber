@@ -32,6 +32,7 @@ import { escapeOmnibox } from "./lib/format";
 import type { BgMessage, SaveTabResult } from "./lib/messages";
 import { Mutex } from "./lib/mutex";
 import { shouldReload } from "./lib/selfupdate";
+import { launcherShortcut, shortcutReport } from "./lib/shortcut";
 import { applyFlush, enqueueCapture, flushQueue, isPairingRequired, isRetryable, shrinkToFit, type QueuedCapture } from "./lib/queue";
 import { getItem, getSession, setItem, setSession, type ExtConfig } from "./lib/storage";
 import { LookupCache, iconPaths, isLookupUrl, statusFor, type LookupResult, type TabStatus } from "./lib/tabstate";
@@ -545,8 +546,21 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 chrome.runtime.onStartup.addListener(() => {
   ensureAlarms();
-  void refreshWatchlist().then(checkForUpdate);
+  void refreshWatchlist().then(checkForUpdate).then(reportShortcut);
 });
+
+/** Tell the daemon the launcher shortcut Chrome has, so Faber's Settings can show the real one. */
+async function reportShortcut() {
+  try {
+    const cfg = await getItem("config");
+    const report = shortcutReport(await launcherShortcut(), cfg.daemonUrl, await getItem("reportedShortcut"));
+    if (!report) return;
+    await (await client()).saveSettings({ shortcuts: { browser: { label: report.label, at: Date.now() } } });
+    await setItem("reportedShortcut", report.key);
+  } catch {
+    // Daemon unreachable or not approved yet: try again on the next sync.
+  }
+}
 
 /** Pick up a newer copy of ourselves that the daemon put on disk after an upgrade. */
 async function checkForUpdate() {
@@ -569,7 +583,7 @@ async function checkForUpdate() {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "faber-backfill") void flush().then(backfill).then(checkForUpdate);
-  if (alarm.name === "faber-sync") void refreshWatchlist().then((ok) => (ok ? flush() : undefined)).then(checkForUpdate);
+  if (alarm.name === "faber-sync") void refreshWatchlist().then((ok) => (ok ? flush() : undefined)).then(checkForUpdate).then(reportShortcut);
   if (alarm.name === "faber-dwell") void syncForeground().then(checkDue);
 });
 

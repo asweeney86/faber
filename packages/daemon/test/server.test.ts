@@ -248,6 +248,16 @@ describe("HTTP API", () => {
     expect((await call("PUT", "/api/settings", s)).status).toBe(400);
   });
 
+  test("the launcher hotkey saves through the API, and a bad one is a 400", async () => {
+    const saved = await call<Settings>("PUT", "/api/settings", { shortcuts: { launcher: "cmd+shift+space" } });
+    expect(saved.status).toBe(200);
+    expect(saved.json.shortcuts.launcher).toBe("cmd+shift+space");
+    const bad = await call<{ error: string }>("PUT", "/api/settings", { shortcuts: { launcher: "space" } });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error).toContain("isn't a shortcut");
+    expect((await call<Settings>("GET", "/api/settings")).json.shortcuts.launcher).toBe("cmd+shift+space");
+  });
+
   test("collections: create, pin, export, import, delete", async () => {
     const c = (await call<{ id: string }>("POST", "/api/collections", { name: "HTTP test", query: { q: "postmortem" } })).json;
     const doc = (await call<SearchResponse>("POST", "/api/search", { q: "lunch interviews onboarding" })).json.hits[0]!.doc;
