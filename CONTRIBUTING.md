@@ -10,7 +10,7 @@ bun run typecheck && bun run test     # must pass before a PR
 bun run test:e2e                      # Playwright; needs `bunx playwright install chromium` once
 ```
 
-You don't need Ollama for tests: they use the offline `fake` providers. To try real models, run `ollama pull qwen3:8b` and `ollama pull qwen3-embedding`, then `bun faber demo` with a throwaway `FABER_HOME`.
+You don't need Ollama for tests: they use the offline `fake` providers. To try real models, run `ollama pull qwen3:4b` and `ollama pull qwen3-embedding:0.6b`, then `bun faber demo` with a throwaway `FABER_HOME`.
 
 ## Guidelines
 

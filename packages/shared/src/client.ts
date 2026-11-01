@@ -29,6 +29,8 @@ import type {
   SearchResponse,
   Settings,
   SettingsUpdate,
+  ModelChange,
+  ModelsState,
   ProjectSummary,
   ProjectDetail,
   Overview,
@@ -124,6 +126,11 @@ export class PbClient {
   updateView = (id: string, patch: { name?: string; spec?: ViewSpec }) => this.req<SavedView>("PATCH", `/api/views/${encodeURIComponent(id)}`, patch);
   deleteView = (id: string) => this.req<{ ok: true }>("DELETE", `/api/views/${encodeURIComponent(id)}`);
   saveSettings = (s: SettingsUpdate) => this.req<Settings>("PUT", "/api/settings", s);
+  models = () => this.req<ModelsState>("GET", "/api/models");
+  /** Switches now if the model is downloaded; otherwise downloads it first (see ModelsState.pull). */
+  setModel = (c: ModelChange) => this.req<ModelsState>("PUT", "/api/models", c);
+  dismissModelPull = () => this.req<ModelsState>("DELETE", "/api/models/pull");
+  resummarise = () => this.req<{ queued: number }>("POST", "/api/models/resummarise");
 
   capture = (c: CaptureRequest) => this.req<CaptureResponse>("POST", "/api/capture", c);
   addDoc = (r: AddDocRequest) => this.req<AddDocResponse>("POST", "/api/docs", r);

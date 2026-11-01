@@ -10,6 +10,11 @@ export interface ProviderHealth {
 const OLLAMA_DEFAULT = "http://127.0.0.1:11434";
 let cache: { at: number; value: Record<string, ProviderHealth> } | null = null;
 
+/** Forget cached health, e.g. after the models changed. */
+export function resetProviderHealth() {
+  cache = null;
+}
+
 export async function ollamaModels(baseUrl: string): Promise<string[] | null> {
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/tags`, { signal: AbortSignal.timeout(1500) });

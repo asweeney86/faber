@@ -117,6 +117,31 @@ export async function embedDoc(
   index.setDoc(docId, vectors);
 }
 
+/**
+ * Enriched documents with no chunks from `model`: after the embedding model changes, these
+ * need re-embedding (their summaries are reused; the LLM isn't called again).
+ */
+const NEEDS_EMBEDDING = `FROM documents d JOIN enrichments e ON e.doc_id = d.id AND e.is_current = 1
+  WHERE d.content IS NOT NULL AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id AND c.embed_model = ?)`;
+
+export function countNeedingEmbedding(db: Database, model: string): number {
+  return db.query<{ n: number }, [string]>(`SELECT COUNT(*) n ${NEEDS_EMBEDDING}`).get(model)!.n;
+}
+
+/** Re-embed up to `limit` documents that lack chunks from the current embedding model. Returns how many were done. */
+export async function embedMissing(deps: Pick<RunDeps, "db" | "cfg" | "embedder" | "index">, limit = 25, signal?: AbortSignal): Promise<number> {
+  const rows = deps.db
+    .query<{ id: string; summary: string }, [string, number]>(`SELECT d.id, e.summary ${NEEDS_EMBEDDING} ORDER BY d.last_seen_at DESC LIMIT ?`)
+    .all(deps.embedder.model, limit);
+  let n = 0;
+  for (const r of rows) {
+    if (signal?.aborted) break;
+    await embedDoc(deps, r.id, r.summary);
+    n++;
+  }
+  return n;
+}
+
 function upsertPerson(db: Database, name: string): string {
   const existing = db.query<{ id: string }, [string]>(`SELECT id FROM people WHERE lower(name) = lower(?)`).get(name);
   if (existing) return existing.id;

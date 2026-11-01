@@ -1,3 +1,4 @@
+import { defaultMinSimilarity } from "@faber/shared";
 import { isLocalUrl, resolveApiKey, type Config, type ProviderConfig } from "../config";
 import { AnthropicChat, AnthropicEnricher } from "./anthropic";
 import { ClaudeCliChat, ClaudeCliEnricher } from "./claude-cli";
@@ -62,12 +63,10 @@ export function makeEnricher(cfg: Config): Enricher {
   }
 }
 
-/** Similarity floor tuned on qwen3-embedding: off-topic queries top out near 0.46, relevant ones start near 0.55. */
-const DEFAULT_MIN_SIMILARITY = 0.48;
-
 export function makeEmbedder(cfg: Config): Embedder {
   const e = buildEmbedder(cfg);
-  e.minSimilarity = cfg.search.min_semantic ?? e.minSimilarity ?? DEFAULT_MIN_SIMILARITY;
+  // Tuned per model (packages/shared/src/models.ts); config can override.
+  e.minSimilarity = cfg.search.min_semantic ?? e.minSimilarity ?? defaultMinSimilarity(cfg.embed.model);
   return e;
 }
 

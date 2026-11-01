@@ -1,3 +1,4 @@
+import { DEFAULT_EMBED_MODEL, DEFAULT_ENRICH_MODEL } from "@faber/shared";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -85,8 +86,11 @@ describe("model output helpers", () => {
 describe("config and privacy guard", () => {
   test("defaults are local Qwen with remote providers blocked", () => {
     const cfg = defaultConfig("/tmp/x");
-    expect(cfg.enrich).toMatchObject({ provider: "ollama", model: "qwen3:8b" });
-    expect(cfg.embed).toMatchObject({ provider: "ollama", model: "qwen3-embedding" });
+    // The fast models; the same ones `faber setup` and Settings recommend.
+    expect(cfg.enrich).toMatchObject({ provider: "ollama", model: DEFAULT_ENRICH_MODEL });
+    expect(cfg.embed).toMatchObject({ provider: "ollama", model: DEFAULT_EMBED_MODEL });
+    expect(DEFAULT_ENRICH_MODEL).toBe("qwen3:4b");
+    expect(DEFAULT_EMBED_MODEL).toBe("qwen3-embedding:0.6b");
     expect(cfg.privacy.allow_remote).toBe(false);
     expect(cfg.daemon.allowed_extension_ids).toEqual([]);
   });

@@ -1,16 +1,9 @@
 /** Getting Ollama running and the default models pulled, for `faber setup`. */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { totalmem } from "node:os";
 
-export const DEFAULT_ENRICH_MODEL = "qwen3:8b";
-/** For machines with under 16 GB of memory, where qwen3:8b would swap. */
-export const SMALL_ENRICH_MODEL = "qwen3:4b";
-
-/** The enrichment model that suits this much memory (bytes). */
-export function recommendedEnrichModel(memBytes = totalmem()): string {
-  return memBytes < 15.5 * 1024 ** 3 ? SMALL_ENRICH_MODEL : DEFAULT_ENRICH_MODEL;
-}
+/** Under this much memory (a "16 GB" Mac reports a little less), the larger models would swap. */
+export const LOW_MEMORY_BYTES = 15.5 * 1024 ** 3;
 
 export type OllamaInstall =
   | { kind: "app" } // Ollama.app (the download from ollama.com, or the Homebrew cask)

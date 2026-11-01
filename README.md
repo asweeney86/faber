@@ -135,7 +135,7 @@ faber setup
 
 `faber setup` walks you through the rest, and is safe to run again any time:
 
-1. **Local AI.** If Ollama isn't there, setup installs it with Homebrew. It then pulls `qwen3:8b` and `qwen3-embedding` (about 10 GB, once). On machines with less than 16 GB of memory it suggests the lighter `qwen3:4b`.
+1. **Local AI.** If Ollama isn't there, setup installs it with Homebrew. It then lets you pick the models and downloads them (about 3 GB for the recommended `qwen3:4b` and `qwen3-embedding:0.6b`). Change them any time in **Settings → AI & Processing** or with `faber models`.
 2. **Background service.** The daemon starts at login and restarts itself after upgrades: `http://127.0.0.1:7777`.
 3. **Chrome extension.** Setup copies it to `~/.faber/extension` and approves it in advance. You do one thing: in `chrome://extensions`, turn on *Developer mode* and choose **Load unpacked** (setup puts the path on your clipboard).
 4. **Launcher** (macOS). Setup installs `Faber Launcher.app` in `~/Applications`, which opens with <kbd>⌥Space</kbd> from anywhere and optionally starts at login.
@@ -232,7 +232,7 @@ There's one short note per document on purpose. Faber is not a note-taking app.
    │                                         │   └─ hybrid search               └─ chunks + embeddings, full-text index
    └─ launcher (⌘⇧K), popup, omnibox         ▼
                                  Ollama (local, default)        Anthropic / OpenAI-compatible / claude CLI
- macOS menu-bar app (⌥Space) ──▶ qwen3:8b · qwen3-embedding      (opt-in, see Privacy)
+ macOS menu-bar app (⌥Space) ──▶ qwen3:4b · qwen3-embedding:0.6b (opt-in, see Privacy)
 ```
 
 The extension does the fetching because it has your Google cookies; the daemon never talks to Google. Google Docs, Slides and Sheets expose plain-text export URLs, so you don't need Drive API access or an OAuth client, and no IT approval.
@@ -245,13 +245,13 @@ The extension does the fetching because it has your Google cookies; the daemon n
 `~/.faber/config.toml` is created, with comments, on first run. `FABER_HOME` changes the directory. Wrong types fail loudly at startup.
 
 ```toml
-[embed]                       # keep local; changing the model requires `faber reindex`
+[embed]                       # keep local; documents re-index in the background after a change
 provider = "ollama"           # ollama | openai-compatible | fake
-model = "qwen3-embedding"
+model = "qwen3-embedding:0.6b"  # or "qwen3-embedding": more accurate, ~15× slower
 
 [enrich]                      # swap freely; every enrichment records which model made it
 provider = "ollama"           # ollama | anthropic | openai-compatible | claude-cli | fake
-model = "qwen3:8b"
+model = "qwen3:4b"            # or "qwen3:8b": a little more thorough, ~2× slower
 
 # [ask]                       # optional: a stronger model just for Ask
 # provider = "anthropic"
@@ -262,7 +262,7 @@ model = "qwen3:8b"
 allow_remote = false          # must be true for anthropic / claude-cli / remote URLs
 
 [search]
-# min_semantic = 0.48         # similarity floor for semantic matches (tuned for qwen3-embedding)
+# min_semantic = 0.47         # similarity floor for semantic matches (tuned per model)
 ```
 
 - **`anthropic`** uses the official SDK. With no `api_key`, it reads `ANTHROPIC_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`).
@@ -290,7 +290,8 @@ allow_remote = false          # must be true for anthropic / claude-cli / remote
 | `faber enrich [--limit N]` | Drain the enrichment queue in the foreground |
 | `faber collections` · `faber export <id> [file]` · `faber import <file>` | List, export and import collections |
 | `faber extensions [approve\|remove <id>]` | Manage which browser extensions may use the API |
-| `faber reindex` · `faber requeue` | Re-embed everything, or re-run enrichment (after changing models) |
+| `faber models [enrich\|embed <model>]` | Show the AI models in use, or switch one (downloads it if needed; search re-indexes in the background) |
+| `faber reindex` · `faber requeue` | Re-embed everything now, or re-run enrichment for every document |
 | `faber demo` · `faber config` · `faber version` | Load demo documents · print the config file path · print the version |
 
 From a source checkout, run them as `bun faber …`.

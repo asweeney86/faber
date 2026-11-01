@@ -5,6 +5,8 @@ import {
   makeEmbedder,
   makeEnricher,
   openDatabase,
+  resetProviderHealth,
+  setConfigValue,
   VectorIndex,
   type Chat,
   type Config,
@@ -13,6 +15,9 @@ import {
   type SearchDeps,
 } from "@faber/core";
 import type { Database } from "bun:sqlite";
+import type { ModelKind } from "@faber/shared";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** Everything a command or request handler needs. Providers are built lazily so `faber status` works without Ollama. */
 export class AppContext {
@@ -86,6 +91,28 @@ export class AppContext {
 
   get searchDeps(): SearchDeps {
     return { db: this.db, index: this.index, embedder: this.embedderOrNull };
+  }
+
+  /**
+   * Use another model from now on: saved to config.toml (so it survives restarts) and
+   * swapped in without a restart. Jobs already running finish with the old model.
+   */
+  setModel(kind: ModelKind, model: string) {
+    const path = join(this.cfg.home, "config.toml");
+    const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+    const tmp = `${path}.tmp-${process.pid}`;
+    writeFileSync(tmp, setConfigValue(text, kind, "model", model));
+    renameSync(tmp, path);
+    this.cfg[kind].model = model;
+    if (kind === "enrich") {
+      this._enricher = null;
+      if (!this.cfg.ask) this._chat = null; // Ask follows the enrich model unless configured
+    } else {
+      this._embedder = null;
+      // The index holds one model's vectors; the new one starts empty and fills as docs re-embed.
+      this._index = null;
+    }
+    resetProviderHealth();
   }
 
   describeProviders() {

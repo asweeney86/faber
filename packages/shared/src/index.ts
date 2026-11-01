@@ -7,3 +7,4 @@ export * from "./theme";
 export * from "./format";
 export * from "./views";
 export * from "./shortcuts";
+export * from "./models";

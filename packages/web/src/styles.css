@@ -1785,6 +1785,7 @@ button.tag:hover {
 }
 .field input,
 .add-rule input,
+.model-custom input,
 .inline-search input {
   height: 34px;
   border: 1px solid var(--border-strong);
@@ -1793,7 +1794,8 @@ button.tag:hover {
   padding: 0 10px;
 }
 .field input:focus,
-.add-rule input:focus {
+.add-rule input:focus,
+.model-custom input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-solid);
@@ -4279,4 +4281,77 @@ button.tag:hover {
   border: 1px dashed var(--accent);
   border-radius: 8px;
   font-size: 13px;
+}
+
+/* Settings → AI & Processing: model pickers */
+.model-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.model-slot > .muted {
+  margin: 2px 0 10px;
+}
+.model-slot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.model-choice {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.model-choice.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft, transparent);
+}
+.model-custom {
+  grid-template-columns: 1fr auto;
+  cursor: default;
+}
+.model-choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.model-choice-title code {
+  margin-left: 4px;
+  font-size: 12px;
+}
+.model-custom input {
+  max-width: 320px;
+  height: 30px;
+  margin-top: 4px;
+}
+.model-choice-size {
+  white-space: nowrap;
+}
+.model-note {
+  margin: 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.model-note progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.model-note .warn {
+  color: var(--warning);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }

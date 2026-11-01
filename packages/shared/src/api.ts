@@ -1,4 +1,5 @@
 import type { Appearance } from "./theme";
+import type { ModelChoice, ModelKind } from "./models";
 import type { Shortcuts } from "./shortcuts";
 /**
  * Wire types for the daemon HTTP API. The extension and web UI import these;
@@ -550,3 +551,34 @@ export interface StatusResponse {
   config_path: string;
 }
 
+
+/** One model slot (summaries or search) in GET /api/models. */
+export interface ModelSlotState {
+  provider: string;
+  model: string;
+  /** Only local (Ollama) models can be switched from the app; others are set in config.toml. */
+  editable: boolean;
+  /** Pulled in Ollama (always true for non-Ollama providers). */
+  installed: boolean;
+  choices: (ModelChoice & { installed: boolean })[];
+}
+
+/** GET /api/models: which models are in use, the choices, and any download or re-index in progress. */
+export interface ModelsState {
+  enrich: ModelSlotState;
+  embed: ModelSlotState;
+  /** Ollama answered (installed lists are empty when it didn't). */
+  ollama_reachable: boolean;
+  /** A model being downloaded; it's switched to when the download finishes. */
+  pull: { kind: ModelKind; model: string; status: string; completed: number; total: number; error: string | null } | null;
+  /** Documents still to re-index for search with the current embedding model. */
+  reindex_remaining: number;
+  /** Documents whose summary was written by a different model than the current one. */
+  summaries_from_other_models: number;
+}
+
+/** PUT /api/models: switch one slot to a model (downloading it first if needed). */
+export interface ModelChange {
+  kind: ModelKind;
+  model: string;
+}

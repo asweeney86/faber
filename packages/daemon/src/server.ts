@@ -34,6 +34,8 @@ import {
   removeCollectionDoc,
   removeTag,
   runQueue,
+  countNeedingEmbedding,
+  embedMissing,
   saveSettings,
   search,
   setCollectionDoc,
@@ -102,6 +104,7 @@ import type {
 import { PAIRING_REQUIRED_MESSAGE } from "@faber/shared";
 import type { AppContext } from "./context";
 import { checkRequest, corsHeaders, effectiveMethod, extensionIdOf } from "./security";
+import { ModelChangeError, ModelManager } from "./models";
 import indexPage from "../../web/index.html";
 import launcherPage from "../../web/launcher.html";
 // @ts-expect-error: a file import resolves to its path (embedded in compiled binaries).
@@ -203,11 +206,13 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
   const autoEnrich = opts.autoEnrich ?? true;
   let queueRunning = false;
   let queueAgain = false;
+  /** Set by stop(): background work that finishes afterwards mustn't start more (the database may be closed). */
+  let stopped = false;
   let providerError: string | null = null;
 
   /** Drain the enrichment queue in the background; coalesces calls made while it runs. */
   const kickQueue = () => {
-    if (!autoEnrich) return;
+    if (!autoEnrich || stopped) return;
     if (queueRunning) {
       queueAgain = true;
       return;
@@ -237,9 +242,54 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
         if (queueAgain) {
           queueAgain = false;
           kickQueue();
+        } else {
+          kickReindex();
         }
       });
   };
+
+  /**
+   * After the embedding model changes, re-embed enriched documents with it (summaries are
+   * reused, no LLM calls), a batch at a time, so search fills back in without `faber reindex`.
+   * Waits while the enrichment queue runs: both use Ollama.
+   */
+  let reindexRunning = false;
+  let reindexError: string | null = null;
+  const kickReindex = () => {
+    if (!autoEnrich || stopped || reindexRunning || queueRunning) return;
+    let embedder;
+    try {
+      embedder = ctx.embedder;
+    } catch {
+      return;
+    }
+    if (countNeedingEmbedding(db, embedder.model) === 0) return;
+    reindexRunning = true;
+    void (async () => {
+      try {
+        let n = 0;
+        let batch: number;
+        // Stop if the model changes again, or enrichment wants Ollama.
+        while (!stopped && !queueRunning && ctx.cfg.embed.model === embedder.model && (batch = await embedMissing({ db, cfg, embedder, index: ctx.index }, 10)) > 0) {
+          n += batch;
+        }
+        ctx.noteIndexWrite();
+        if (n) log(`[index] re-embedded ${n} docs with ${embedder.model}`);
+        reindexError = null;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg !== reindexError) log(`[index] re-embedding paused: ${msg}`);
+        reindexError = msg;
+      } finally {
+        reindexRunning = false;
+      }
+    })();
+  };
+
+  const models = new ModelManager(ctx, (kind) => {
+    log(`[models] ${kind} now uses ${ctx.cfg[kind].model}`);
+    if (kind === "embed") kickReindex();
+  });
 
   /** Pairing and approval are for the user (web UI or CLI), never for an extension approving itself. */
   const requireUser = (req: Request) => {
@@ -252,6 +302,30 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
   };
 
   const routes: Route[] = [
+    route("GET", "/api/models", () => models.state()),
+    route("PUT", "/api/models", async (req) => {
+      requireUser(req);
+      await models.change(await body(req));
+      return models.state();
+    }),
+    route("DELETE", "/api/models/pull", (req) => {
+      requireUser(req);
+      models.dismissPullError();
+      return models.state();
+    }),
+    /** Re-summarise documents whose summary came from another model, with the current one. */
+    route("POST", "/api/models/resummarise", (req) => {
+      requireUser(req);
+      const ids = db
+        .query<{ id: string }, [string, string]>(
+          `SELECT d.id FROM documents d JOIN enrichments e ON e.doc_id = d.id AND e.is_current = 1
+           WHERE d.content IS NOT NULL AND NOT (e.provider = ? AND e.model = ?)`,
+        )
+        .all(cfg.enrich.provider, cfg.enrich.model);
+      for (const { id } of ids) enqueueEnrichment(db, id, undefined, { force: true });
+      kickQueue();
+      return { queued: ids.length };
+    }),
     route("GET", "/api/status", async () => {
       const { problems: issues, embedOk, enrichOk } = await providerProblems(cfg);
       return {
@@ -642,7 +716,7 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
             ? err.status
             : err instanceof CollectionError || err instanceof OrganizeError || err instanceof ViewError
               ? err.status
-              : err instanceof SettingsValidationError || err instanceof AskError || err instanceof ValidationError
+              : err instanceof SettingsValidationError || err instanceof AskError || err instanceof ValidationError || err instanceof ModelChangeError
                 ? 400
                 : 500;
         const message = err instanceof Error ? err.message : String(err);
@@ -678,14 +752,16 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
   kickQueue();
   const tick = setInterval(() => {
     if (!queueRunning) recoverStaleJobs(db);
-    if (!queueRunning && ctx.syncIndex()) log("[index] reloaded vectors changed by another process");
+    if (!queueRunning && !reindexRunning && ctx.syncIndex()) log("[index] reloaded vectors changed by another process");
     const due = nextDueAt(db);
     if (due !== null && due <= Date.now()) kickQueue();
+    kickReindex();
   }, opts.tickMs ?? 30_000);
   const stop = server.stop.bind(server);
   return Object.assign(server, {
     kickQueue,
     stop: (closeActive?: boolean) => {
+      stopped = true;
       clearInterval(tick);
       return stop(closeActive);
     },

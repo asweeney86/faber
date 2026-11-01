@@ -10,6 +10,16 @@ interface OllamaOpts {
 
 /** Local models can be slow to load and generate; give up eventually so the queue never wedges. */
 const TIMEOUT_MS = 5 * 60_000;
+/**
+ * Keep models in memory between documents. Ollama's default (5 minutes) means a trickle of
+ * new documents pays a 5–10 s reload each time.
+ */
+const KEEP_ALIVE = "30m";
+/**
+ * Embedding inputs are chunks of ~1,500 characters (a few hundred tokens). A small context
+ * keeps the embedding model's memory down; Ollama would otherwise reserve 32k tokens' worth.
+ */
+const EMBED_CTX = 4096;
 
 async function post<T>(baseUrl: string, path: string, body: unknown): Promise<T> {
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
@@ -41,6 +51,7 @@ export class OllamaEnricher implements Enricher {
       stream: false,
       // Qwen3 "thinks" by default; it is slow and unnecessary for extraction.
       think: false,
+      keep_alive: KEEP_ALIVE,
       format: ENRICHMENT_JSON_SCHEMA,
       options: { temperature: 0.1, num_ctx: 16384 },
       messages: [
@@ -67,6 +78,8 @@ export class OllamaEmbedder implements Embedder {
     const res = await post<{ embeddings: number[][] }>(this.baseUrl, "/api/embed", {
       model: this.model,
       input: texts,
+      keep_alive: KEEP_ALIVE,
+      options: { num_ctx: EMBED_CTX },
     });
     return res.embeddings.map((e) => Float32Array.from(e));
   }
@@ -97,6 +110,7 @@ export class OllamaChat implements Chat {
       model: this.model,
       stream: false,
       think: false,
+      keep_alive: KEEP_ALIVE,
       options: { temperature: 0.2, num_ctx: 16384 },
       messages: [
         { role: "system", content: system },

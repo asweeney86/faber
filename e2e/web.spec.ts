@@ -519,9 +519,69 @@ test.describe("QA fixes", () => {
     await expect(bar.locator("code")).toHaveText("brew services start ollama");
     await bar.getByRole("link", { name: "Settings" }).click();
     await expect(page.getByTestId("settings-issues")).toContainText("Ollama isn't reachable");
-    await expect(page.getByTestId("enricher-state")).toContainText("unavailable");
-    await expect(page.getByTestId("embedder-state")).toContainText("unavailable");
+    await expect(page.getByTestId("models-enrich")).toContainText("not ready");
+    await expect(page.getByTestId("models-embed")).toContainText("not ready");
     await expect(page.getByTestId("providers")).toContainText("config.toml");
+  });
+
+  test("Settings → AI lets you pick the models: downloads, switches, re-indexes", async ({ page }) => {
+    // The e2e daemon runs offline fake models, so stand in for a machine running Ollama.
+    const choice = (id: string, label: string, installed: boolean, size_gb: number) => ({ id, label, detail: `${label} model`, size_gb, installed });
+    let state = {
+      enrich: { provider: "ollama", model: "qwen3:4b", editable: true, installed: true, choices: [choice("qwen3:4b", "Fast", true, 2.5), choice("qwen3:8b", "Thorough", false, 5.2)] },
+      embed: {
+        provider: "ollama",
+        model: "qwen3-embedding:0.6b",
+        editable: true,
+        installed: true,
+        choices: [choice("qwen3-embedding:0.6b", "Fast", true, 0.6), choice("qwen3-embedding", "Most accurate", true, 4.7)],
+      },
+      ollama_reachable: true,
+      pull: null as null | Record<string, unknown>,
+      reindex_remaining: 0,
+      summaries_from_other_models: 0,
+    };
+    const puts: unknown[] = [];
+    await page.route("**/api/models**", async (route) => {
+      const req = route.request();
+      if (req.method() === "PUT") {
+        const body = req.postDataJSON() as { kind: "enrich" | "embed"; model: string };
+        puts.push(body);
+        if (body.model === "qwen3:8b") state = { ...state, pull: { kind: "enrich", model: "qwen3:8b", status: "downloading", completed: 2 * 1024 ** 3, total: 5 * 1024 ** 3, error: null } };
+        else state = { ...state, [body.kind]: { ...state[body.kind], model: body.model }, reindex_remaining: body.kind === "embed" ? 12 : 0 };
+      }
+      if (req.method() === "POST") return route.fulfill({ json: { queued: 7 } });
+      await route.fulfill({ json: state });
+    });
+    await page.goto("/#/settings/ai");
+    const enrich = page.getByTestId("models-enrich");
+    await expect(enrich.getByTestId("model-choice-qwen3:4b").getByRole("radio")).toBeChecked();
+    await expect(enrich.getByTestId("model-choice-qwen3:8b")).toContainText("5.2 GB download");
+
+    // A model that isn't downloaded yet: progress, then it's the one in use.
+    await enrich.getByTestId("model-choice-qwen3:8b").click();
+    await expect(enrich.getByTestId("model-pull-enrich")).toContainText("Downloading qwen3:8b · 40% of 5.0 GB");
+    state = { ...state, pull: null, enrich: { ...state.enrich, model: "qwen3:8b" }, summaries_from_other_models: 7 };
+    await expect(enrich.getByTestId("model-choice-qwen3:8b").getByRole("radio")).toBeChecked();
+    await expect(enrich.getByTestId("resummarise-note")).toContainText("7 documents were summarised by another model");
+    await enrich.getByTestId("resummarise").click();
+    await expect(enrich.getByTestId("resummarise-note")).toContainText("Queued 7 documents");
+
+    // The search model: re-indexing shows until it's done.
+    const embed = page.getByTestId("models-embed");
+    await embed.getByTestId("model-choice-qwen3-embedding").click();
+    await expect(embed.getByTestId("reindex-progress")).toContainText("Re-indexing 12 documents with qwen3-embedding");
+    state = { ...state, reindex_remaining: 0 };
+    await expect(embed.getByTestId("reindex-progress")).toHaveCount(0);
+
+    // Any other Ollama model, by name.
+    await embed.getByTestId("model-custom-embed").fill("nomic-embed-text");
+    await embed.getByRole("button", { name: "Use" }).click();
+    expect(puts).toEqual([
+      { kind: "enrich", model: "qwen3:8b" },
+      { kind: "embed", model: "qwen3-embedding" },
+      { kind: "embed", model: "nomic-embed-text" },
+    ]);
   });
 
   test("Ask lists cited sources first and the rest under “Also read”", async ({ page }) => {

@@ -26,7 +26,8 @@ import {
   stats,
 } from "@faber/core";
 import { ConfigError, configHome, DatabaseTooNewError } from "@faber/core";
-import type { SearchHit } from "@faber/shared";
+import { sameModel, type ModelKind, type ModelsState, type SearchHit } from "@faber/shared";
+import { ModelManager } from "./models";
 import { AppContext } from "./context";
 import { seedDemo } from "./demo";
 import { startServer } from "./server";
@@ -65,6 +66,7 @@ const USAGE = `faber ${VERSION} — a local-first memory for the documents you o
   faber extensions [approve|remove <id>]
                                        List, approve or remove extensions allowed to use the API
   faber demo                           Load demo documents (try it with FABER_HOME=$(mktemp -d))
+  faber models [enrich|embed <model>]  Show the AI models in use, or switch one (downloads it if needed)
   faber reindex                        Re-embed every document with the configured embed model
   faber requeue                        Re-run enrichment for every document (after a model or prompt change)
   faber config                         Print the config file path
@@ -346,6 +348,26 @@ async function main() {
         break;
       }
 
+      case "models": {
+        const [kind, model] = positional;
+        if (kind === undefined) {
+          printModels((await daemonModels(ctx)) ?? (await new ModelManager(ctx).state()));
+          break;
+        }
+        if ((kind !== "enrich" && kind !== "embed") || !model) throw new Error("Usage: faber models [enrich|embed <model>]   e.g. faber models enrich qwen3:8b");
+        const after = await switchModel(ctx, kind, model);
+        const slot = after[kind];
+        if (!sameModel(slot.model, model)) throw new Error(after.pull?.error ?? `Couldn't switch to ${model}`);
+        console.log(`✓ ${kind === "enrich" ? "Summaries now use" : "Search now uses"} ${slot.model}`);
+        if (kind === "embed" && after.reindex_remaining > 0) {
+          console.log(`  ${after.reindex_remaining} documents will be re-indexed in the background while the daemon runs (keyword search works meanwhile).`);
+        }
+        if (kind === "enrich" && after.summaries_from_other_models > 0) {
+          console.log(`  New documents use it. To redo the ${after.summaries_from_other_models} existing summaries: Settings → AI & Processing, or faber requeue.`);
+        }
+        break;
+      }
+
       case "reindex": {
         const ids = ctx.db.query<{ id: string }, []>(`SELECT id FROM documents WHERE content IS NOT NULL`).all();
         console.log(`Re-embedding ${ids.length} docs with ${ctx.cfg.embed.model}`);
@@ -481,6 +503,77 @@ async function main() {
  * Only copies that `faber setup` installed are touched, and only by release builds (a
  * source checkout never replaces them); failures never stop the daemon.
  */
+/** The running daemon's view of the models, or null when it isn't running. */
+async function daemonModels(ctx: AppContext): Promise<ModelsState | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${ctx.cfg.daemon.port}/api/models`, { signal: AbortSignal.timeout(1500) });
+    return res.ok ? ((await res.json()) as ModelsState) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Switch through the running daemon when there is one (it swaps the model live and
+ * re-indexes); otherwise directly, and the daemon picks it up when it starts.
+ */
+async function switchModel(ctx: AppContext, kind: ModelKind, model: string): Promise<ModelsState> {
+  const progress = (s: ModelsState) => {
+    const p = s.pull;
+    if (!p || p.error) return;
+    const pct = p.total ? ` ${Math.floor((p.completed / p.total) * 100)}% of ${(p.total / 1024 ** 3).toFixed(1)} GB` : "";
+    process.stdout.write(`\r\x1b[2K  ↓ ${p.model}  ${p.status}${pct}`);
+  };
+  const live = await daemonModels(ctx);
+  let state: ModelsState;
+  if (live) {
+    const base = `http://127.0.0.1:${ctx.cfg.daemon.port}`;
+    const res = await fetch(`${base}/api/models`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, model }) });
+    const body = (await res.json()) as ModelsState & { error?: string };
+    if (!res.ok) throw new Error(body.error ?? `daemon said ${res.status}`);
+    state = body;
+    while (state.pull && !state.pull.error) {
+      progress(state);
+      await Bun.sleep(500);
+      state = (await daemonModels(ctx)) ?? state;
+    }
+  } else {
+    const m = new ModelManager(ctx);
+    const { done } = await m.change({ kind, model });
+    let finished = false;
+    void done.finally(() => (finished = true));
+    while (!finished) {
+      progress(await m.state());
+      await Bun.sleep(500);
+    }
+    state = await m.state();
+  }
+  if (process.stdout.isTTY) process.stdout.write("\r\x1b[2K");
+  return state;
+}
+
+function printModels(s: ModelsState) {
+  const show = (title: string, kind: ModelKind) => {
+    const slot = s[kind];
+    console.log(`${title} (${kind}): ${slot.provider === "ollama" ? "" : `${slot.provider}/`}${slot.model}${slot.installed ? "" : "  (not downloaded)"}`);
+    if (!slot.editable) {
+      console.log("  set in config.toml");
+      return;
+    }
+    for (const c of slot.choices) {
+      const mark = sameModel(c.id, slot.model) ? "*" : " ";
+      console.log(`  ${mark} ${c.id.padEnd(22)} ${c.label}: ${c.detail} ${c.installed ? "(downloaded)" : `(${c.size_gb} GB download)`}`);
+    }
+  };
+  show("Summaries", "enrich");
+  console.log();
+  show("Search", "embed");
+  if (s.pull) console.log(`\nDownloading ${s.pull.model}: ${s.pull.error ?? s.pull.status}`);
+  if (s.reindex_remaining > 0) console.log(`\nRe-indexing ${s.reindex_remaining} documents for search in the background.`);
+  if (!s.ollama_reachable) console.log("\nOllama isn't running, so downloads can't be checked.");
+  console.log("\nSwitch with: faber models enrich <model>   or   faber models embed <model>   (any Ollama model name works)");
+}
+
 function syncInstalledCopies(layout: ReturnType<typeof detectLayout>, home: string) {
   if (!layout.compiled) return;
   try {
@@ -504,7 +597,7 @@ function syncInstalledCopies(layout: ReturnType<typeof detectLayout>, home: stri
 
 const COMMANDS = [
   "setup", "doctor", "service", "uninstall", "serve", "status", "import-chrome", "add", "enrich", "search", "ask",
-  "collections", "projects", "export", "import", "extensions", "demo", "reindex", "requeue", "config", "version", "help",
+  "collections", "projects", "export", "import", "extensions", "demo", "models", "reindex", "requeue", "config", "version", "help",
 ];
 
 function editDistance(a: string, b: string): number {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ACCENTS,
   DARK_FLAVORS,
@@ -12,6 +12,9 @@ import {
   shortcutLabel,
   shortcutWarning,
   SUGGESTED_SOURCES,
+  sameModel,
+  type ModelKind,
+  type ModelsState,
   type Appearance,
   type ExtensionAccess,
   type Flavor,
@@ -523,14 +526,44 @@ function WatchlistSection() {
 
 function ModelsSection() {
   const status = useAsync(() => api.status(), []);
+  const [models, setModels] = useState<ModelsState | null>(null);
+  const [err, setErr] = useState<Error | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [queued, setQueued] = useState<number | null>(null);
+
+  const refresh = useCallback(() => api.models().then(setModels, (e: unknown) => setErr(e as Error)), []);
+  useEffect(() => void refresh(), [refresh]);
+  // Follow a download or re-index while it runs.
+  const active = !!models && ((models.pull && !models.pull.error) || models.reindex_remaining > 0);
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => void refresh(), 1500);
+    return () => clearInterval(t);
+  }, [active, refresh]);
+
+  const act = async (fn: () => Promise<ModelsState | void>) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const next = await fn();
+      if (next) setModels(next);
+      else await refresh();
+      status.reload();
+    } catch (e) {
+      setErr(e as Error);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const choose = (kind: ModelKind, model: string) => act(() => api.setModel({ kind, model }));
+
   return (
     <>
       <section className="card settings-section" data-testid="providers">
         <header className="settings-head">
           <h3>Models</h3>
           <p className="muted">
-            Configured in <code className="wrap-anywhere">{status.data?.config_path ?? "config.toml"}</code>. Restart <code className="nowrap">bun faber serve</code> after editing.
-            Local models (Ollama) are the default; remote providers only run when <code>privacy.allow_remote</code> is on.
+            Faber runs these on this computer with Ollama. Faster models make new documents searchable sooner; larger ones are a little more thorough.
           </p>
         </header>
         {status.data && status.data.issues.length > 0 && (
@@ -542,28 +575,70 @@ function ModelsSection() {
             ))}
           </ul>
         )}
-        {status.data ? (
-          <dl className="kv">
-            <dt>Enrichment</dt>
-            <dd data-testid="enricher-state">
-              <code>{status.data.providers.enrich}</code>{" "}
-              {status.data.enricher_ok ? <span className="pill pill-ok">ready</span> : <span className="pill pill-warn">unavailable — new docs won’t be summarised</span>}
-            </dd>
-            <dt>Embeddings</dt>
-            <dd data-testid="embedder-state">
-              <code>{status.data.providers.embed}</code>{" "}
-              {status.data.embedder_ok ? <span className="pill pill-ok">ready</span> : <span className="pill pill-warn">unavailable — keyword search only</span>}
-            </dd>
-            <dt>Ask</dt>
-            <dd>
-              <code>{status.data.providers.ask}</code>
-            </dd>
-          </dl>
-        ) : status.error ? (
-          <ErrorBanner error={status.error} />
-        ) : (
-          <Spinner />
+        {err && <ErrorBanner error={err} />}
+        {!models && !err && <Spinner />}
+        {models && (
+          <div className="model-slots">
+            <ModelPicker
+              kind="enrich"
+              title="Summaries"
+              hint="Reads each document once and writes its summary, people, projects and tags. Ask uses it too."
+              models={models}
+              busy={busy}
+              onChoose={choose}
+              onDismiss={() => act(() => api.dismissModelPull())}
+              ready={status.data?.enricher_ok}
+            >
+              {models.summaries_from_other_models > 0 && models.enrich.editable && (
+                <p className="model-note" data-testid="resummarise-note">
+                  {plural(models.summaries_from_other_models, "document")} {models.summaries_from_other_models === 1 ? "was" : "were"} summarised by another model. New documents use{" "}
+                  {models.enrich.model}.{" "}
+                  {queued !== null ? (
+                    <span className="muted">Queued {plural(queued, "document")}.</span>
+                  ) : (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={busy}
+                      data-testid="resummarise"
+                      onClick={() =>
+                        void act(async () => {
+                          setQueued((await api.resummarise()).queued);
+                        })
+                      }
+                    >
+                      Re-summarise them
+                    </button>
+                  )}
+                </p>
+              )}
+            </ModelPicker>
+            <ModelPicker
+              kind="embed"
+              title="Search index"
+              hint="Turns documents into vectors so search finds them by meaning, not just by words."
+              models={models}
+              busy={busy}
+              onChoose={choose}
+              onDismiss={() => act(() => api.dismissModelPull())}
+              ready={status.data?.embedder_ok}
+            >
+              {models.reindex_remaining > 0 && (
+                <p className="model-note" data-testid="reindex-progress">
+                  <Spinner size={12} /> Re-indexing {plural(models.reindex_remaining, "document")} with {models.embed.model}. Keyword search works meanwhile.
+                </p>
+              )}
+            </ModelPicker>
+            {status.data && status.data.providers.ask !== status.data.providers.enrich && (
+              <p className="muted small">
+                Ask uses <code>{status.data.providers.ask}</code> (set under <code>[ask]</code> in config.toml).
+              </p>
+            )}
+          </div>
         )}
+        <p className="muted small">
+          Remote providers (Anthropic, OpenAI-compatible) are set in <code className="wrap-anywhere">{status.data?.config_path ?? "config.toml"}</code> and only run when{" "}
+          <code>privacy.allow_remote</code> is on.
+        </p>
       </section>
       <section className="card settings-section" data-testid="processing">
         <header className="settings-head">
@@ -584,20 +659,129 @@ function ModelsSection() {
         )}
         <dl className="kv kv-commands">
           <dt>
-            <code>bun faber requeue</code>
+            <code>faber requeue</code>
           </dt>
-          <dd>Re-run enrichment for every document, after changing the model or prompt.</dd>
+          <dd>Re-run enrichment for every document, e.g. after a prompt change.</dd>
           <dt>
-            <code>bun faber reindex</code>
+            <code>faber reindex</code>
           </dt>
-          <dd>Re-embed everything, after changing the embedding model.</dd>
+          <dd>Re-embed everything now (switching the search model here does this in the background).</dd>
           <dt>
-            <code>bun faber enrich</code>
+            <code>faber enrich</code>
           </dt>
           <dd>Drain the queue in the foreground.</dd>
         </dl>
       </section>
     </>
+  );
+}
+
+
+function ModelPicker(props: {
+  kind: ModelKind;
+  title: string;
+  hint: string;
+  models: ModelsState;
+  busy: boolean;
+  ready?: boolean;
+  onChoose: (kind: ModelKind, model: string) => Promise<void>;
+  onDismiss: () => Promise<void>;
+  children?: React.ReactNode;
+}) {
+  const { kind, models, busy } = props;
+  const slot = models[kind];
+  const pull = models.pull?.kind === kind ? models.pull : null;
+  const downloading = !!models.pull && !models.pull.error;
+  const isChoice = slot.choices.some((c) => sameModel(c.id, slot.model));
+  const [custom, setCustom] = useState(isChoice ? "" : slot.model);
+  const name = `model-${kind}`;
+
+  return (
+    <div className="model-slot" data-testid={`models-${kind}`}>
+      <div className="model-slot-head">
+        <strong>{props.title}</strong>
+        {props.ready === false ? <span className="pill pill-warn">not ready</span> : props.ready ? <span className="pill pill-ok">ready</span> : null}
+      </div>
+      <p className="muted small">{props.hint}</p>
+      {!slot.editable ? (
+        <p data-testid={`model-${kind}-fixed`}>
+          <code>
+            {slot.provider}/{slot.model}
+          </code>{" "}
+          <span className="muted small">set in config.toml</span>
+        </p>
+      ) : (
+        <div className="model-choices" role="radiogroup" aria-label={props.title}>
+          {slot.choices.map((c) => {
+            const current = sameModel(c.id, slot.model);
+            const loading = pull?.model === c.id && !pull.error;
+            return (
+              <label key={c.id} className={`model-choice${current ? " is-current" : ""}`} data-testid={`model-choice-${c.id}`}>
+                <input
+                  type="radio"
+                  name={name}
+                  checked={current}
+                  disabled={busy || downloading}
+                  onChange={() => void props.onChoose(kind, c.id)}
+                />
+                <span className="model-choice-text">
+                  <span className="model-choice-title">
+                    {c.label} <code>{c.id}</code>
+                  </span>
+                  <span className="muted small">{c.detail}</span>
+                </span>
+                <span className="model-choice-size muted small">{loading ? "Downloading…" : c.installed ? "Downloaded" : `${c.size_gb} GB download`}</span>
+              </label>
+            );
+          })}
+          <form
+            className={`model-choice model-custom${!isChoice ? " is-current" : ""}`}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (custom.trim()) void props.onChoose(kind, custom.trim());
+            }}
+          >
+            <span className="model-choice-text">
+              <span className="model-choice-title">Another Ollama model</span>
+              <input
+                placeholder={kind === "enrich" ? "e.g. llama3.2:3b" : "e.g. nomic-embed-text"}
+                value={custom}
+                onChange={(e) => setCustom(e.target.value)}
+                aria-label={`Another Ollama model for ${props.title.toLowerCase()}`}
+                data-testid={`model-custom-${kind}`}
+              />
+            </span>
+            <button className="btn btn-sm" type="submit" disabled={busy || downloading || !custom.trim() || sameModel(custom.trim(), slot.model)}>
+              Use
+            </button>
+          </form>
+        </div>
+      )}
+      {pull && (
+        <div className="model-note" data-testid={`model-pull-${kind}`}>
+          {pull.error ? (
+            <>
+              <span className="warn">
+                <IconAlert size={13} /> {pull.error}
+              </span>{" "}
+              <button className="btn btn-ghost btn-sm" onClick={() => void props.onDismiss()}>
+                Dismiss
+              </button>
+            </>
+          ) : (
+            <>
+              <span>
+                Downloading {pull.model}
+                {pull.total ? ` · ${Math.floor((pull.completed / pull.total) * 100)}% of ${(pull.total / 1024 ** 3).toFixed(1)} GB` : ` · ${pull.status}`}. Faber switches to it when
+                it’s done.
+              </span>
+              <progress max={pull.total || 1} value={pull.total ? pull.completed : 0} />
+            </>
+          )}
+        </div>
+      )}
+      {props.children}
+    </div>
   );
 }
 

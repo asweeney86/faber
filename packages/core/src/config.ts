@@ -58,18 +58,20 @@ port = 7777
 # approved in Settings → Browser extensions or with: faber extensions approve <id>
 allowed_extension_ids = []
 
-# Embeddings power semantic search. Keep this local and do not change the
-# model casually: switching models requires \`faber reindex\`.
+# Embeddings power semantic search. Keep this local. Change the model in
+# Settings → AI & Processing (or \`faber models\`): documents are then re-indexed
+# in the background. "qwen3-embedding" (8B) is more accurate and ~15× slower.
 [embed]
 provider = "ollama"
-model = "qwen3-embedding"
+model = "qwen3-embedding:0.6b"
 base_url = "http://127.0.0.1:11434"
 
 # Enrichment writes the summary, doc type, people, projects and tags.
 # Swap providers freely; every enrichment row records which model made it.
+# "qwen3:8b" gives a little more detail and is about twice as slow.
 [enrich]
 provider = "ollama"
-model = "qwen3:8b"
+model = "qwen3:4b"
 base_url = "http://127.0.0.1:11434"
 
 # Examples:
@@ -99,16 +101,17 @@ base_url = "http://127.0.0.1:11434"
 allow_remote = false
 
 [enrichment]
-max_chars = 24000
+# The start of a document says what it is; reading more mostly costs time.
+max_chars = 12000
 concurrency = 1
 
 [search]
 chunk_chars = 1500
 max_chunks_per_doc = 16
 # Semantic matches below this cosine similarity are dropped as noise. The
-# default (0.48) suits qwen3-embedding; lower it for other models if search
-# misses things, raise it if unrelated docs show up.
-# min_semantic = 0.48
+# default is tuned per model (0.47 for qwen3-embedding:0.6b, 0.48 otherwise);
+# lower it if search misses things, raise it if unrelated docs show up.
+# min_semantic = 0.47
 `;
 
 function deepMerge<T extends Record<string, unknown>>(base: T, over: Record<string, unknown>): T {

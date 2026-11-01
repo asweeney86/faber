@@ -40,7 +40,8 @@ import type { Database } from "bun:sqlite";
 import { VERSION } from "../version";
 import { appVersion, extensionVersion, syncExtension, syncLauncher } from "./assets";
 import { detectLayout, extensionInstallPath, launcherInstallPath, type Layout } from "./layout";
-import { DEFAULT_ENRICH_MODEL, detectOllama, findBrew, gb, pullModel, recommendedEnrichModel, startOllama, waitFor } from "./ollama";
+import { MODEL_CHOICES, sameModel } from "@faber/shared";
+import { detectOllama, findBrew, gb, LOW_MEMORY_BYTES, pullModel, startOllama, waitFor } from "./ollama";
 import { installService, serviceInstalled, serviceKind, uninstallService } from "./service";
 
 /** Chrome's id for an unpacked extension: the first 128 bits of sha256(path), as hex digits mapped 0-f → a-p. */
@@ -366,13 +367,28 @@ async function setupAi(deps: SetupDeps, cfg: Config): Promise<{ ok: boolean; cfg
   }
   io.line(`  ${OK} Ollama is running`);
 
-  // A lighter model on smaller machines, unless the user already chose one.
-  const rec = recommendedEnrichModel();
-  if (cfg.enrich.provider === "ollama" && cfg.enrich.model === DEFAULT_ENRICH_MODEL && rec !== DEFAULT_ENRICH_MODEL && !hasModel(models, DEFAULT_ENRICH_MODEL)) {
-    const mem = gb(totalmem());
-    if (await io.confirm(`This computer has ${mem} of memory. Use the lighter ${rec} model for summaries?`, true)) {
-      cfg = editConfig(cfg, "enrich", "model", rec);
-      io.line(`  ${OK} Set enrich.model = "${rec}" in ${tilde(join(cfg.home, "config.toml"))}`);
+  // Before the big download, offer the choice of models (unless one is already downloaded, or
+  // the config names a model of the user's own). Change later in Settings or `faber models`.
+  const lowMemory = totalmem() < LOW_MEMORY_BYTES;
+  for (const [kind, what] of [
+    ["enrich", "Which model should write summaries?"],
+    ["embed", "Which model should index documents for search?"],
+  ] as const) {
+    const pc = cfg[kind];
+    const choices = MODEL_CHOICES[kind];
+    const current = choices.findIndex((c) => sameModel(c.id, pc.model));
+    if (!io.interactive || pc.provider !== "ollama" || current === -1 || hasModel(models, pc.model)) continue;
+    const pick = await io.choose(
+      what,
+      choices.map((c) => {
+        const warn = lowMemory && c.size_gb > 4 ? yellow(` This computer has ${gb(totalmem())} of memory, so it may be slow.`) : "";
+        return `${bold(c.label)} ${dim(`${c.id}, ${c.size_gb} GB`)}: ${c.detail}${warn}`;
+      }),
+      current,
+    );
+    if (pick !== current) {
+      cfg = editConfig(cfg, kind, "model", choices[pick]!.id);
+      io.line(`  ${OK} Set ${kind}.model = "${choices[pick]!.id}"`);
     }
   }
 

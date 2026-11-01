@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { defaultConfig, getSettings, listExtensions, openDatabase, setConfigValue } from "@faber/core";
 import { appVersion, extensionVersion, syncExtension, syncLauncher, treeHash } from "../src/install/assets";
 import { brewPrefixOf, type Layout } from "../src/install/layout";
-import { recommendedEnrichModel, SMALL_ENRICH_MODEL, DEFAULT_ENRICH_MODEL } from "../src/install/ollama";
 import { launchdPlist, serviceKind, systemdUnit, UPGRADE_EXIT_CODE } from "../src/install/service";
 import { chromeExtensionId, runSetup, type Host, type Io } from "../src/install/setup";
 import { binaryIdentity, watchForUpgrade } from "../src/install/upgrade-watch";
@@ -215,17 +214,11 @@ describe("config edits", () => {
 
   test("the default config can be edited and still loads", () => {
     const { DEFAULT_CONFIG_TOML } = require("@faber/core") as typeof import("@faber/core");
-    const out = setConfigValue(DEFAULT_CONFIG_TOML, "enrich", "model", "qwen3:4b");
+    const out = setConfigValue(DEFAULT_CONFIG_TOML, "enrich", "model", "qwen3:8b");
     const parsed = Bun.TOML.parse(out) as { enrich: { model: string }; embed: { model: string } };
-    expect(parsed.enrich.model).toBe("qwen3:4b");
-    expect(parsed.embed.model).toBe("qwen3-embedding");
+    expect(parsed.enrich.model).toBe("qwen3:8b");
+    expect(parsed.embed.model).toBe("qwen3-embedding:0.6b");
   });
-});
-
-test("memory decides the default enrichment model", () => {
-  expect(recommendedEnrichModel(8 * 1024 ** 3)).toBe(SMALL_ENRICH_MODEL);
-  expect(recommendedEnrichModel(16 * 1024 ** 3)).toBe(DEFAULT_ENRICH_MODEL);
-  expect(recommendedEnrichModel(64 * 1024 ** 3)).toBe(DEFAULT_ENRICH_MODEL);
 });
 
 describe("faber setup (no service, no AI)", () => {
