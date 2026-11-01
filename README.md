@@ -320,7 +320,7 @@ For `dev:extension`, load `packages/extension/build` once via **Load unpacked**.
 
 Releases are built and tested by CI. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing) for how that works and how to try a release locally (`scripts/release.ts`, `scripts/smoke.ts`, `scripts/brew-local-test.sh`).
 
-End-to-end tests run against offline `fake` providers and demo data, so they need neither Ollama nor Google. The screenshots here come from the demo data, enriched locally by `qwen3:8b`. Regenerate them with `bun scripts/screenshots.ts --daemon <url>`. The product requirements are in [docs/PRD.md](docs/PRD.md).
+End-to-end tests run against offline `fake` providers and demo data, so they need neither Ollama nor Google. The screenshots here come from the demo data, enriched locally by `qwen3:8b`. Regenerate them with `bun scripts/screenshots.ts --daemon <url>`.
 
 <details>
 <summary><b>Limitations</b></summary>

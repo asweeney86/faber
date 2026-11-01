@@ -12,3 +12,6 @@ packages/extension/build-test/
 e2e/.tmp/
 packages/macos/build/
 *.bun-build
+
+# Local planning notes
+docs/PRD.md
