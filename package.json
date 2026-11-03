@@ -25,6 +25,7 @@
     "test": "bun test packages scripts",
     "test:e2e": "playwright test",
     "release": "bun scripts/cut-release.ts",
+    "release:dry-run": "bun scripts/cut-release.ts --dry-run",
     "build:extension": "bun run --cwd packages/extension build",
     "dev:extension": "bun run --cwd packages/extension dev",
     "brand": "bun scripts/brand.ts",

@@ -4,9 +4,13 @@
  * tag and push. The tag starts .github/workflows/release.yml, which builds macOS and Linux,
  * publishes the GitHub release and updates the Homebrew tap; this waits for it.
  *
- *   make release                      next patch version (0.1.3 → 0.1.4)
- *   make release BUMP=minor           or major, or an exact version: BUMP=0.2.0
+ *   npm run release:dry-run           what the next release would contain; changes nothing
+ *   npm run release                   next patch version (0.1.3 → 0.1.4)
+ *   npm run release minor             or major, or an exact version like 0.2.0
  *   bun scripts/cut-release.ts [patch|minor|major|x.y.z] [--dry-run] [--yes] [--no-wait]
+ *
+ * (Through npm, flags need a "--" first: npm run release -- minor --no-wait. npm keeps
+ * --dry-run for itself otherwise, which is why the dry run has its own script.)
  *
  * Refuses unless you're on an up-to-date, clean main whose CI passed. If a check fails
  * before anything is pushed, the version bump is undone.

@@ -42,8 +42,9 @@ People upgrade with `brew upgrade faber`, and nobody reads release notes first. 
 ## Releasing
 
 ```bash
-make release-dry-run             # what the next release would contain; changes nothing
-make release                     # next patch version; or BUMP=minor, BUMP=major, BUMP=0.2.0
+npm run release:dry-run          # what the next release would contain; changes nothing
+npm run release                  # next patch version
+npm run release minor            # or major, or an exact version like 0.2.0
 ```
 
 `scripts/cut-release.ts` checks that you're on a clean, up-to-date `main` whose CI passed, then:
