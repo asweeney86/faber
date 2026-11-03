@@ -21,40 +21,37 @@ function projectFacets(db: Database, limit: number, docIds?: string[]): FacetCou
  * (the current results) so that picking a facet never leads to zero hits.
  */
 export function getFacets(db: Database, limit = 30, docIds?: string[]): Facets {
-  // Scope with a temp table: result sets can exceed SQLite's parameter limit.
-  let scope = "";
-  if (docIds) {
-    db.exec(`CREATE TEMP TABLE IF NOT EXISTS facet_scope (id TEXT PRIMARY KEY)`);
-    db.exec(`DELETE FROM facet_scope`);
-    const ins = db.prepare(`INSERT OR IGNORE INTO facet_scope (id) VALUES (?)`);
-    db.transaction(() => docIds.forEach((id) => ins.run(id)))();
-    scope = "IN (SELECT id FROM facet_scope)";
-  }
-  const where = (col: string) => (scope ? `${col} ${scope}` : "1=1");
+  // Scope as one JSON parameter: result sets can exceed SQLite's parameter limit, and a
+  // read-only query keeps caches keyed on writes (groups()) intact.
+  // ?1 is the JSON list of ids, or NULL for every document.
+  const ids = docIds ? JSON.stringify(docIds) : null;
+  const where = (col: string) => `(?1 IS NULL OR ${col} IN (SELECT value FROM json_each(?1)))`;
   const json = (column: "people" | "projects") =>
     db
-      .query<FacetCount, [number]>(
+      .query<FacetCount, [string | null, number]>(
         `SELECT j.value AS value, COUNT(DISTINCT e.doc_id) AS count
          FROM enrichments e, json_each(e.${column}) j
          WHERE e.is_current = 1 AND ${where("e.doc_id")}
-         GROUP BY j.value ORDER BY count DESC, j.value LIMIT ?`,
+         GROUP BY j.value ORDER BY count DESC, j.value LIMIT ?2`,
       )
-      .all(limit);
+      .all(ids, limit);
   return {
     doc_type: db
-      .query<FacetCount, []>(
+      .query<FacetCount, [string | null]>(
         `SELECT doc_type AS value, COUNT(*) AS count FROM enrichments WHERE is_current = 1 AND ${where("doc_id")}
          GROUP BY doc_type ORDER BY count DESC`,
       )
-      .all(),
+      .all(ids),
     source: db
-      .query<FacetCount, []>(`SELECT source AS value, COUNT(*) AS count FROM documents WHERE ${where("id")} GROUP BY source ORDER BY count DESC`)
-      .all(),
-    tags: db
-      .query<FacetCount, [number]>(
-        `SELECT tag AS value, COUNT(*) AS count FROM tags WHERE ${where("doc_id")} GROUP BY tag ORDER BY count DESC, tag LIMIT ?`,
+      .query<FacetCount, [string | null]>(
+        `SELECT source AS value, COUNT(*) AS count FROM documents WHERE ${where("id")} GROUP BY source ORDER BY count DESC`,
       )
-      .all(limit),
+      .all(ids),
+    tags: db
+      .query<FacetCount, [string | null, number]>(
+        `SELECT tag AS value, COUNT(*) AS count FROM tags WHERE ${where("doc_id")} GROUP BY tag ORDER BY count DESC, tag LIMIT ?2`,
+      )
+      .all(ids, limit),
     people: json("people"),
     projects: projectFacets(db, limit, docIds),
   };

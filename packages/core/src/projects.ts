@@ -90,8 +90,34 @@ export interface Group {
 
 const DOC_FIELDS = `d.id AS doc_id, COALESCE(e.doc_type, 'other') AS doc_type, d.last_seen_at, d.first_seen_at, d.visit_count`;
 
-/** Every project (after corrections), keyed by id, with its parent and children. */
+/**
+ * Moves on every write: total_changes() counts this connection's, data_version moves when
+ * another connection (the CLI, another process) commits. Exact, and costs microseconds.
+ */
+function writeRevision(db: Database): string {
+  const t = db.query<{ n: number }, []>("SELECT total_changes() AS n").get()!.n;
+  const v = db.query<{ data_version: number }, []>("PRAGMA data_version").get()!.data_version;
+  return `${t}.${v}`;
+}
+
+const groupsCache = new WeakMap<Database, { rev: string; groups: Map<string, Group> }>();
+
+/**
+ * Every project (after corrections), keyed by id, with its parent and children.
+ * Building this reads the whole library, and every search and doc list needs it (to label
+ * docs with their projects), so it is cached until the next write. Callers must not
+ * mutate the result.
+ */
 export function groups(db: Database): Map<string, Group> {
+  const rev = writeRevision(db);
+  const hit = groupsCache.get(db);
+  if (hit?.rev === rev) return hit.groups;
+  const built = buildGroups(db);
+  groupsCache.set(db, { rev, groups: built });
+  return built;
+}
+
+function buildGroups(db: Database): Map<string, Group> {
   const rules = loadRules(db);
   const out = new Map<string, Group>();
   const ensure = (id: string) => {
