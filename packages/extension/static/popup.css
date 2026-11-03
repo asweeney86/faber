@@ -477,3 +477,15 @@ body {
 .popup-projects .tag-row {
   margin-top: 0;
 }
+
+/* Site icons (shared DocIcon); same rules as packages/ui/src/launcher.css. */
+.favicon {
+  display: inline-block;
+  border-radius: 3px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+:root[data-mode="dark"] .favicon {
+  background: color-mix(in srgb, white 88%, transparent);
+  padding: 1px;
+}

@@ -105,7 +105,7 @@ import type {
 } from "@faber/shared";
 import { PAIRING_REQUIRED_MESSAGE } from "@faber/shared";
 import type { AppContext } from "./context";
-import { checkRequest, corsHeaders, effectiveMethod, extensionIdOf } from "./security";
+import { checkRequest, corsHeaders, effectiveMethod, extensionIdOf, hostAllowed } from "./security";
 import { Favicons, type Fetcher } from "./favicons";
 import { ModelChangeError, ModelManager } from "./models";
 import indexPage from "../../web/index.html";
@@ -119,6 +119,7 @@ import { VERSION } from "./version";
 const MAX_BODY = 8 * 1024 * 1024;
 const MAX_CONTENT_CHARS = 1_000_000;
 const DOC_SOURCES: DocSource[] = ["gdoc", "gslides", "gsheets", "url"];
+const FAVICON_PATH = /^\/api\/docs\/[^/]+\/favicon$/;
 
 class HttpError extends Error {
   constructor(
@@ -415,13 +416,12 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
       return getDoc(db, row.id);
     }),
 
-    // The site's own icon, for <img> tags. Only for documents in the library, so a page
-    // elsewhere can't make the daemon fetch arbitrary hosts.
-    route("GET", "/api/docs/:id/favicon", async (req, p) => {
-      if (req.headers.get("sec-fetch-site") === "cross-site") throw new HttpError(403, "cross-site");
+    // The site's own icon, for <img> tags. Only for documents in the library, so nothing can
+    // make the daemon fetch arbitrary hosts.
+    route("GET", "/api/docs/:id/favicon", async (_req, p) => {
       const doc = getDocRow(db, p.id!);
       if (!doc) throw new HttpError(404, "document not found");
-      const icon = cfg.privacy.favicons === false || doc.source !== "url" ? null : await favicons.get(doc.canonical_url);
+      const icon = cfg.privacy.favicons === false ? null : doc.source === "url" ? await favicons.get(doc.canonical_url) : await favicons.google(doc.source);
       if (!icon) return new Response(null, { status: 204, headers: { "cache-control": "private, max-age=86400" } });
       return new Response(icon.bytes, {
         headers: {
@@ -707,7 +707,11 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
 
   async function handleApi(req: Request): Promise<Response> {
     const url = new URL(req.url);
-    const verdict = checkRequest(req, security);
+    let verdict = checkRequest(req, security);
+    // Site icons are plain <img> loads, from the app and from extension pages alike (which send
+    // no Origin). They reveal nothing without a document's random id, and the daemon only ever
+    // fetches icons for sites already in the library, so only the Host check applies.
+    if (!verdict.ok && req.method === "GET" && FAVICON_PATH.test(url.pathname) && hostAllowed(req)) verdict = { ok: true, origin: null };
     if (!verdict.ok) return Response.json({ error: `forbidden: ${verdict.reason}` }, { status: 403 });
     const cors = corsHeaders(verdict.origin);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });

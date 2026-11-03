@@ -27,6 +27,16 @@ interface Meta {
 
 export type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Google's own icons for Docs, Slides and Sheets. Their pages sit behind sign-in, so the
+ * icon can't be read from the page; Google serves these at fixed addresses.
+ */
+export const GOOGLE_ICONS = {
+  gdoc: "https://ssl.gstatic.com/docs/documents/images/kix-favicon-2023q4.ico",
+  gslides: "https://ssl.gstatic.com/docs/presentations/images/favicon-2023q4.ico",
+  gsheets: "https://ssl.gstatic.com/docs/spreadsheets/spreadsheets_2023q4.ico",
+} as const;
+
 export class Favicons {
   private dir: string;
   private inflight = new Map<string, Promise<Icon | null>>();
@@ -49,18 +59,28 @@ export class Favicons {
     if (origin.protocol !== "https:" && origin.protocol !== "http:") return null;
     const host = origin.host.toLowerCase();
     if (!/^[a-z0-9.\-:\[\]]+$/.test(host)) return null;
-    const cached = this.cached(host);
+    return this.once(host, () => this.fetchIcon(`${origin.protocol}//${origin.host}`));
+  }
+
+  /** The icon for a Google Docs, Slides or Sheets document. */
+  async google(kind: keyof typeof GOOGLE_ICONS): Promise<Icon | null> {
+    return this.once(`google-${kind}`, () => this.fetchImage(GOOGLE_ICONS[kind]));
+  }
+
+  /** From the disk cache, or fetched once (concurrent callers share the fetch) and cached. */
+  private async once(key: string, load: () => Promise<Icon | null>): Promise<Icon | null> {
+    const cached = this.cached(key);
     if (cached !== undefined) return cached;
-    let p = this.inflight.get(host);
+    let p = this.inflight.get(key);
     if (!p) {
-      p = this.fetchIcon(`${origin.protocol}//${origin.host}`)
+      p = load()
         .catch(() => null)
         .then((icon) => {
-          this.store(host, icon);
+          this.store(key, icon);
           return icon;
         })
-        .finally(() => this.inflight.delete(host));
-      this.inflight.set(host, p);
+        .finally(() => this.inflight.delete(key));
+      this.inflight.set(key, p);
     }
     return p;
   }

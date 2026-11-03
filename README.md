@@ -105,7 +105,7 @@ Faber stores confidential work documents, so its defaults are conservative:
 
 - 🔒 **Nothing is captured until you enable it.** Every watch rule starts off. Incognito tabs are never captured, and only tabs you actually look at count.
 - 💻 **Everything stays on your machine.** All data lives in one SQLite file in `~/.faber`. The server only listens on your own machine (loopback), and the config refuses anything else.
-- 🌐 **Site icons come from the site itself.** For saved web pages, the daemon asks that site for its icon (never a third-party icon service) and caches it. `privacy.favicons = false` turns this off.
+- 🌐 **Site icons come from the site itself.** For saved web pages, the daemon asks that site for its icon (never a third-party icon service) and caches it; Docs, Slides and Sheets use Google's icons, fetched once from Google. `privacy.favicons = false` turns this off.
 - 🧠 **AI runs locally by default.** The default is Qwen 3 via [Ollama](https://ollama.com). Remote providers (Anthropic, OpenAI-compatible) are **blocked** until you set `privacy.allow_remote = true`.
 - 🛡️ **Websites can't read it.** Cross-origin requests are rejected, the `Host` header must be a loopback name (this blocks DNS rebinding), and browser extensions must be approved before they can call the API.
 
@@ -261,7 +261,7 @@ model = "qwen3:4b"            # or "qwen3:8b": a little more thorough, ~2× slow
 
 [privacy]
 allow_remote = false          # must be true for anthropic / claude-cli / remote URLs
-favicons = true               # fetch each saved website's icon from that site
+favicons = true               # fetch each saved site's icon from that site (Google's for Docs/Slides/Sheets)
 
 [search]
 # min_semantic = 0.47         # similarity floor for semantic matches (tuned per model)

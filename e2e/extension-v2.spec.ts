@@ -294,3 +294,18 @@ test("the popup's launcher button opens the launcher with what was typed", async
   await expect(win.getByTestId("launcher-item").first()).toBeVisible();
 });
 
+
+test("extension pages load site icons from the daemon like the app does", async ({ context, extId }) => {
+  const res = await fetch(`${DAEMON}/api/search`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "" }) });
+  const id = ((await res.json()) as { hits: { doc: { id: string } }[] }).hits[0]!.doc.id;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extId}/popup.html`);
+  const icon = page.waitForResponse((r) => r.url().endsWith(`/api/docs/${id}/favicon`));
+  await page.evaluate((src) => {
+    const img = new Image();
+    img.src = src;
+    document.body.append(img);
+  }, `${DAEMON}/api/docs/${id}/favicon`);
+  // Allowed (the e2e daemon has icons off, so "no icon"), not refused as an unidentified extension request.
+  expect((await icon).status()).toBe(204);
+});

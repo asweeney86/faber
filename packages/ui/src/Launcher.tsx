@@ -13,6 +13,7 @@ import {
 } from "@faber/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { FaberIcon } from "./Brand";
+import { DocIcon, IconClientContext } from "./DocIcon";
 import { projectTint } from "./tint";
 import { IS_MAC, isModKey, MOD_KEY, useDebounced } from "./hooks";
 import {
@@ -31,7 +32,6 @@ import {
   IconSparkle,
   IconUsers,
   IconX,
-  SourceIcon,
 } from "./icons";
 
 /**
@@ -127,7 +127,7 @@ const docItem = (d: Doc, project?: string): Item => ({
   kind: "doc",
   title: d.title.trim() || hostOf(d.canonical_url) || "Untitled document",
   subtitle: docSubtitle(d, project),
-  icon: <SourceIcon source={d.source} size={20} />,
+  icon: <DocIcon doc={d} size={20} />,
   url: d.canonical_url,
   docId: d.id,
   route: `/doc/${d.id}`,
@@ -284,8 +284,9 @@ export function Launcher({ host, initialQuery = "", initialMode = "search" }: { 
                   kind: "doc" as const,
                   title: `[${c.n}] ${c.title}`,
                   subtitle: c.passage.slice(0, 120),
-                  icon: <SourceIcon source={c.source} size={20} />,
+                  icon: <DocIcon doc={{ id: c.doc_id, source: c.source, canonical_url: c.url }} size={20} />,
                   url: c.url,
+                  docId: c.doc_id,
                   route: `/doc/${c.doc_id}`,
                 })),
               },
@@ -417,6 +418,7 @@ export function Launcher({ host, initialQuery = "", initialMode = "search" }: { 
   };
 
   return (
+    <IconClientContext.Provider value={host.client}>
     <div
       className="fl-panel"
       role="dialog"
@@ -582,6 +584,7 @@ export function Launcher({ host, initialQuery = "", initialMode = "search" }: { 
         </span>
       </footer>
     </div>
+    </IconClientContext.Provider>
   );
 }
 
