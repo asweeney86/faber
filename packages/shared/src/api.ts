@@ -557,6 +557,8 @@ export interface StatusResponse {
   issues: string[];
   /** Where settings live (respects FABER_HOME). */
   config_path: string;
+  /** Opaque; changes whenever the library changes, so the app knows to reload what it shows. */
+  revision: string;
 }
 
 

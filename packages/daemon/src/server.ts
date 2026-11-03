@@ -9,6 +9,7 @@ import {
   deleteCollection,
   deleteDoc,
   enqueueEnrichment,
+  libraryRevision,
   recordOpen,
   PROMPT_VERSION,
   exportCollection,
@@ -345,6 +346,7 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
         embedder_ok: embedOk,
         enricher_ok: enrichOk,
         issues,
+        revision: libraryRevision(db),
       } satisfies StatusResponse;
     }),
 

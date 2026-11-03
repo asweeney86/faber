@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { frecencies, recordOpen } from "../src/frecency";
-import { getDocRow, recordVisit } from "../src/docs";
+import { addTag, getDocRow, libraryRevision, recordVisit } from "../src/docs";
 import { search } from "../src/search/hybrid";
 import { gdocUrl, testEnv } from "./helpers";
 
@@ -63,5 +63,21 @@ describe("frecency", () => {
     const ids = r.hits.map((h) => h.doc.id);
     expect(ids.indexOf(often)).toBeLessThan(ids.indexOf(rarely));
     expect(r.hits.find((h) => h.doc.id === often)!.signals.frecency).toBeGreaterThan(0);
+  });
+});
+
+describe("library revision", () => {
+  test("moves when something the app shows changes, not otherwise", async () => {
+    const env = testEnv();
+    const r0 = libraryRevision(env.db);
+    expect(libraryRevision(env.db)).toBe(r0);
+    const id = await env.addDoc(gdocUrl(20), "New doc", "Some text.");
+    const r1 = libraryRevision(env.db);
+    expect(r1).not.toBe(r0);
+    recordOpen(env.db, id);
+    const r2 = libraryRevision(env.db);
+    expect(r2).not.toBe(r1);
+    addTag(env.db, id, "planning", "manual");
+    expect(libraryRevision(env.db)).not.toBe(r2);
   });
 });

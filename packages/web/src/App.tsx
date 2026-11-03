@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FaberIcon, FaberWordmark, IconClientContext, projectTint } from "@faber/ui";
 import type { ExtensionAccess, ProjectSummary, StatusResponse } from "@faber/shared";
-import { api, isTypingTarget, navigate, OFFLINE_EVENT, plural, useAsync, useChangeBus, useRoute } from "./lib";
+import { api, emitChange, isTypingTarget, navigate, OFFLINE_EVENT, plural, useAsync, useChangeBus, useRoute } from "./lib";
 import { IconChevron, IconFolder, IconGrid, IconHome, IconInbox, IconLayers, IconPanel, IconPlus, IconSearch, IconSettings, IconSparkle, IconUsers, IconX } from "./components/icons";
 import { DrawerContext, EmptyState, IssuesBar, LiveContext, Modal, type LiveStatus } from "./components/ui";
 import { AddDocContext, AddDocForm, useOpenAddDoc, addResultToast, ToastContext, Toasts, type AddPrefill, type Toast } from "./components/AddDoc";
@@ -161,17 +161,26 @@ function NotFound() {
   );
 }
 
-/** Daemon status plus pending extension pairing requests, polled every 5s and on any change. */
+/**
+ * Daemon status plus pending extension pairing requests, polled every 5s, on any change, and
+ * when the tab comes back into view. When the library changed elsewhere (a capture from the
+ * extension, a finished summary, the CLI), every page reloads what it shows.
+ */
 function useStatus(): LiveStatus {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [offline, setOffline] = useState(false);
   const [pendingExtensions, setPending] = useState<ExtensionAccess[]>([]);
-  const poll = useCallback(() => {
+  const revision = useRef<string | null>(null);
+  const poll = useCallback((fromThisTab = false) => {
     api
       .status()
       .then((s) => {
         setStatus(s);
         setOffline(false);
+        const changed = revision.current !== null && revision.current !== s.revision;
+        revision.current = s.revision;
+        // A change made in this tab has already reloaded the page; only announce outside ones.
+        if (changed && !fromThisTab) emitChange();
       })
       .catch(() => setOffline(true));
     api
@@ -185,13 +194,19 @@ function useStatus(): LiveStatus {
   }, []);
   useEffect(() => {
     poll();
-    const t = setInterval(poll, 5000);
-    return () => clearInterval(t);
+    const t = setInterval(() => poll(), 5000);
+    const onVisible = () => document.visibilityState === "visible" && poll();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [poll]);
-  useChangeBus(poll);
+  useChangeBus(() => poll(true));
   useEffect(() => {
-    window.addEventListener(OFFLINE_EVENT, poll);
-    return () => window.removeEventListener(OFFLINE_EVENT, poll);
+    const onOffline = () => poll();
+    window.addEventListener(OFFLINE_EVENT, onOffline);
+    return () => window.removeEventListener(OFFLINE_EVENT, onOffline);
   }, [poll]);
   return useMemo(() => ({ status, offline, pendingExtensions }), [status, offline, pendingExtensions]);
 }
