@@ -929,7 +929,8 @@ function PrivacySection() {
         <ul className="fact-list">
           <li>None of your data, by default: the daemon listens only on this computer and rejects requests from websites.</li>
           <li>
-            Site icons: for web pages you've saved, the daemon asks that site (and only that site) for its icon, at most once a week. Turn this off with{" "}
+            Site icons: for web pages you've saved, the daemon asks that site (and only that site) for its icon, at most once a week; Docs, Slides and Sheets icons come from
+            Google. Turn this off with{" "}
             <code>privacy.favicons = false</code>.
           </li>
           <li>Remote AI providers run only when you set <code>privacy.allow_remote = true</code> in the config file.</li>

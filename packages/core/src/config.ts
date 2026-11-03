@@ -31,7 +31,7 @@ export interface Config {
   privacy: {
     /** Hard stop: when false, any provider that is not localhost is refused. */
     allow_remote: boolean;
-    /** Show each website's own icon, fetched once from the site (default true). */
+    /** Show each site's own icon, fetched once from the site, or from Google for Docs/Slides/Sheets (default true). */
     favicons?: boolean;
   };
   enrichment: {
@@ -101,7 +101,8 @@ base_url = "http://127.0.0.1:11434"
 [privacy]
 # When false, the daemon refuses to send document text to any non-localhost provider.
 allow_remote = false
-# Show each website's icon next to its pages, fetched once from the site itself.
+# Show each site's icon next to its pages, fetched once from the site itself
+# (Google's own icons for Docs, Slides and Sheets).
 favicons = true
 
 [enrichment]

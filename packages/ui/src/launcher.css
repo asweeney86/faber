@@ -519,3 +519,16 @@
   display: flex;
   color: var(--tint);
 }
+
+/* Site icons (DocIcon), shared by the app, the Mac launcher and the extension. */
+.favicon {
+  display: inline-block;
+  border-radius: 3px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+/* Many icons are drawn dark-on-transparent (GitHub's is black): give them a light tile in dark mode. */
+:root[data-mode="dark"] .favicon {
+  background: color-mix(in srgb, white 88%, transparent);
+  padding: 1px;
+}

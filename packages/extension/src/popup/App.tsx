@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { daemonClient } from "../lib/client";
 import { PbClient, type Collection, type Doc, type DocProjectRef, type ProjectSummary, type SearchHit } from "@faber/shared";
-import { FaberIcon, MOD_KEY, isModKey, useDebounced, IconCheckCircle, IconChevron, IconChevronLeft, IconClock, IconLayers, IconOpenApp } from "@faber/ui";
+import { DocIcon, FaberIcon, IconClientContext, MOD_KEY, isModKey, useDebounced, IconCheckCircle, IconChevron, IconChevronLeft, IconClock, IconLayers, IconOpenApp } from "@faber/ui";
 import { docTypeLabel, fitTags, isOpenableUrl, relativeTime, snippetParts } from "../lib/format";
 import { appearance } from "../lib/appearance";
 import { sendToBackground, type SaveTabResult } from "../lib/messages";
 import { isPairingRequired } from "../lib/queue";
 import { getItem, type ExtConfig } from "../lib/storage";
-import { Icon, SourceIcon, TagList, TypeBadge } from "../ui/components";
+import { Icon, TagList, TypeBadge } from "../ui/components";
 import { clampIndex, sendKeepalive } from "./util";
 
 const MOD = MOD_KEY;
@@ -166,6 +166,7 @@ export function App() {
   };
 
   return (
+    <IconClientContext.Provider value={api}>
     <div className="popup" onKeyDown={onKey}>
       <header className="popup-head">
         <FaberIcon size={26} />
@@ -276,6 +277,7 @@ export function App() {
         </footer>
       )}
     </div>
+    </IconClientContext.Provider>
   );
 }
 
@@ -325,7 +327,7 @@ function ResultRow({ hit, selected, onHover }: { hit: SearchHit; selected: boole
       }}
     >
       <span className="result-icon">
-        <SourceIcon source={d.source} />
+        <DocIcon doc={d} size={16} />
       </span>
       <div className="result-main">
         <div className="result-title-row">

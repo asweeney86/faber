@@ -1,4 +1,4 @@
-import type { DocSource, DocTag, DocType } from "@faber/shared";
+import type { DocTag, DocType } from "@faber/shared";
 import { BRAND, ICON_RIBBON_PATH, ICON_VIEWBOX, TILE_RADIUS } from "@faber/shared";
 import { docTypeLabel } from "../lib/format";
 
@@ -44,38 +44,6 @@ export function BrandMark({ size = 22 }: { size?: number }) {
     <svg viewBox={ICON_VIEWBOX} width={size} height={size} aria-hidden="true">
       <rect className="faber-tile" width="64" height="64" rx={TILE_RADIUS} fill={BRAND.tile} />
       <path className="faber-ribbon" d={ICON_RIBBON_PATH} fill={BRAND.white} />
-    </svg>
-  );
-}
-
-/** Colored per-source glyph, identical to the web app's: blue doc, amber slides, green sheet, gray globe. */
-export function SourceIcon({ source, size = 16 }: { source: DocSource; size?: number }) {
-  const cls = `source-icon source-${source}`;
-  if (source === "gslides")
-    return (
-      <svg width={size} height={size} viewBox="0 0 20 20" className={cls} aria-label="Google Slides" role="img">
-        <rect x="3" y="2" width="14" height="16" rx="2.5" fill="currentColor" />
-        <rect x="6" y="7" width="8" height="6" rx="1" fill="white" opacity="0.95" />
-      </svg>
-    );
-  if (source === "gsheets")
-    return (
-      <svg width={size} height={size} viewBox="0 0 20 20" className={cls} aria-label="Google Sheets" role="img">
-        <rect x="3" y="2" width="14" height="16" rx="2.5" fill="currentColor" />
-        <path d="M6 7h8v7H6zM6 10.5h8M10 7v7" stroke="white" strokeWidth="1.3" fill="none" opacity="0.95" />
-      </svg>
-    );
-  if (source === "url")
-    return (
-      <svg width={size} height={size} viewBox="0 0 20 20" className={cls} aria-label="Web page" role="img">
-        <circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M2.5 10h15M10 2.5c2.2 2.3 2.2 12.7 0 15M10 2.5c-2.2 2.3-2.2 12.7 0 15" fill="none" stroke="currentColor" strokeWidth="1.3" />
-      </svg>
-    );
-  return (
-    <svg width={size} height={size} viewBox="0 0 20 20" className={cls} aria-label="Google Docs" role="img">
-      <path d="M5 2h7l5 5v9.5a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 4 16.5v-13A1.5 1.5 0 0 1 5.5 2z" fill="currentColor" />
-      <path d="M7 10h6M7 12.5h6M7 15h4" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.95" />
     </svg>
   );
 }

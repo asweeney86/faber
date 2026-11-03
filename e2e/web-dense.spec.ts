@@ -44,31 +44,45 @@ test.describe("search results", () => {
     await expect(page.getByTestId("sort-recent")).toHaveCount(0);
   });
 
-  test("web pages show their site's icon; docs and sites without one keep the built-in icon", async ({ page }) => {
+  test("documents show their site's icon (Google's for Docs); sites without one keep the built-in icon", async ({ page }) => {
+    let noIconId = "";
     await page.route("**/api/search", async (r) => {
       const res = await r.fetch();
       const body = (await res.json()) as { hits: { doc: { id: string; source: string; canonical_url: string; title: string } }[] };
-      // Turn two hits into web pages: one site with an icon, one without.
+      // Turn two hits into web pages: one site with an icon, one without. The rest stay Google docs.
       body.hits[0]!.doc = { ...body.hits[0]!.doc, source: "url", canonical_url: "https://has-icon.example.com/a", title: "Has icon" };
       body.hits[1]!.doc = { ...body.hits[1]!.doc, source: "url", canonical_url: "https://no-icon.example.com/b", title: "No icon" };
+      noIconId = body.hits[1]!.doc.id;
       await r.fulfill({ response: res, json: body });
     });
-    let asked = 0;
-    await page.route("**/api/docs/*/favicon", async (r) => {
-      asked++;
-      // The first hit's doc gets an icon; anything else has none.
-      const first = asked === 1;
-      await r.fulfill(first ? { status: 200, contentType: "image/png", body: PNG_1PX } : { status: 204 });
-    });
+    await page.route("**/api/docs/*/favicon", (r) =>
+      r.fulfill(r.request().url().includes(`/api/docs/${noIconId}/`) ? { status: 204 } : { status: 200, contentType: "image/png", body: PNG_1PX }),
+    );
     await page.goto("/#/search");
     const results = page.getByTestId("result");
     await expect(results.nth(0).locator(".result-head img.favicon")).toBeVisible();
     await expect(results.nth(0).locator(".result-head .source-icon")).toHaveCount(0);
     await expect(results.nth(1).locator(".result-head img.favicon")).toHaveCount(0);
     await expect(results.nth(1).locator(".result-head .source-icon")).toBeVisible();
-    // Google docs never ask.
-    await expect(results.nth(2).locator(".result-head .source-icon")).toBeVisible();
-    expect(asked).toBe(2);
+    await expect(results.nth(2).locator(".result-head img.favicon")).toBeVisible();
+  });
+});
+
+test.describe("launcher", () => {
+  test("⌘K shows web pages with their site's icon", async ({ page }) => {
+    await page.route("**/api/search", async (r) => {
+      const res = await r.fetch();
+      const body = (await res.json()) as { hits: { doc: { source: string; canonical_url: string; title: string } }[] };
+      body.hits[0]!.doc = { ...body.hits[0]!.doc, source: "url", canonical_url: "https://news.example.com/item", title: "A web page" };
+      await r.fulfill({ response: res, json: body });
+    });
+    await page.route("**/api/docs/*/favicon", (r) => r.fulfill({ status: 200, contentType: "image/png", body: PNG_1PX }));
+    await page.goto("/");
+    await expect(page.getByTestId("digest")).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByTestId("launcher-input").fill("pricing");
+    const item = page.locator(".fl-item", { hasText: "A web page" });
+    await expect(item.locator("img.favicon")).toBeVisible();
   });
 });
 

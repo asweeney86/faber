@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AppContext } from "../src/context";
-import { Favicons, iconLinks, sniffImage, type Fetcher } from "../src/favicons";
+import { Favicons, GOOGLE_ICONS, iconLinks, sniffImage, type Fetcher } from "../src/favicons";
 import { startServer } from "../src/server";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
@@ -85,7 +85,10 @@ describe("GET /api/docs/:id/favicon", () => {
   let ctx: AppContext;
   let server: ReturnType<typeof startServer>;
   let base: string;
-  const web = fakeWeb({ "https://news.example.org/favicon.ico": { type: "image/x-icon", body: ICO } });
+  const web = fakeWeb({
+    "https://news.example.org/favicon.ico": { type: "image/x-icon", body: ICO },
+    [GOOGLE_ICONS.gdoc]: { type: "image/x-icon", body: ICO },
+  });
 
   beforeAll(() => {
     home = mkdtempSync(join(tmpdir(), "faber-fav-api-"));
@@ -103,7 +106,7 @@ describe("GET /api/docs/:id/favicon", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("serves the site's icon for web pages in the library, and nothing for other docs", async () => {
+  test("serves the site's icon for web pages in the library, and Google's for its docs", async () => {
     const page = recordVisit(ctx.db, { url: "https://news.example.org/story/42", title: "A story" }).row;
     const res = await fetch(`${base}/api/docs/${page.id}/favicon`);
     expect(res.status).toBe(200);
@@ -112,10 +115,21 @@ describe("GET /api/docs/:id/favicon", () => {
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(ICO);
 
     const gdoc = recordVisit(ctx.db, { url: "https://docs.google.com/document/d/1FavTestAbcdefghijklmnopqrstuv/edit", title: "Doc" }).row;
-    expect((await fetch(`${base}/api/docs/${gdoc.id}/favicon`)).status).toBe(204);
+    const g = await fetch(`${base}/api/docs/${gdoc.id}/favicon`);
+    expect(g.status).toBe(200);
+    expect(new Uint8Array(await g.arrayBuffer())).toEqual(ICO);
+    // Google's icon is fetched once for every doc of that kind; a kind it can't get falls back.
+    const gdoc2 = recordVisit(ctx.db, { url: "https://docs.google.com/document/d/1FavTestSecondDocAbcdefghijklm/edit", title: "Doc 2" }).row;
+    expect((await fetch(`${base}/api/docs/${gdoc2.id}/favicon`)).status).toBe(200);
+    expect(web.asked.filter((u) => u === GOOGLE_ICONS.gdoc)).toHaveLength(1);
+    const slides = recordVisit(ctx.db, { url: "https://docs.google.com/presentation/d/1FavTestSlidesAbcdefghijklmnop/edit", title: "Deck" }).row;
+    expect((await fetch(`${base}/api/docs/${slides.id}/favicon`)).status).toBe(204);
+
     expect((await fetch(`${base}/api/docs/nope/favicon`)).status).toBe(404);
-    // Another website can't use the daemon to fetch things.
-    expect((await fetch(`${base}/api/docs/${page.id}/favicon`, { headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
-    expect(web.asked.every((u) => u.startsWith("https://news.example.org/"))).toBe(true);
+    // Extension pages load icons as plain images (no Origin), like the app; the Host check still applies.
+    expect((await fetch(`${base}/api/docs/${page.id}/favicon`, { headers: { "sec-fetch-site": "none", "sec-fetch-mode": "no-cors" } })).status).toBe(200);
+    expect((await fetch(`${base}/api/docs/${page.id}/favicon`, { headers: { host: "evil.example:80" } })).status).toBe(403);
+    // Only the doc's own site, or Google's icon addresses, are ever asked.
+    expect(web.asked.every((u) => u.startsWith("https://news.example.org/") || Object.values(GOOGLE_ICONS).includes(u as never))).toBe(true);
   });
 });

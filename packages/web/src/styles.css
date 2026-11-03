@@ -1349,17 +1349,6 @@ button.tag:hover {
   padding: 0 8px;
   font-size: 11.5px;
 }
-.favicon {
-  display: inline-block;
-  border-radius: 3px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-/* Many icons are drawn dark-on-transparent (GitHub's is black): give them a light tile in dark mode. */
-:root[data-mode="dark"] .favicon {
-  background: color-mix(in srgb, white 88%, transparent);
-  padding: 1px;
-}
 
 .result.skeleton {
   cursor: default;

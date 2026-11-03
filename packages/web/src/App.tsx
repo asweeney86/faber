@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FaberIcon, FaberWordmark, projectTint } from "@faber/ui";
+import { FaberIcon, FaberWordmark, IconClientContext, projectTint } from "@faber/ui";
 import type { ExtensionAccess, ProjectSummary, StatusResponse } from "@faber/shared";
 import { api, isTypingTarget, navigate, OFFLINE_EVENT, plural, useAsync, useChangeBus, useRoute } from "./lib";
 import { IconChevron, IconFolder, IconGrid, IconHome, IconInbox, IconLayers, IconPanel, IconPlus, IconSearch, IconSettings, IconSparkle, IconUsers, IconX } from "./components/icons";
@@ -73,6 +73,7 @@ export function App() {
   }, [drawerId]);
 
   return (
+    <IconClientContext.Provider value={api}>
     <DrawerContext.Provider value={drawer}>
       <LiveContext.Provider value={live}>
       <ToastContext.Provider value={toast}>
@@ -103,6 +104,7 @@ export function App() {
       </ToastContext.Provider>
       </LiveContext.Provider>
     </DrawerContext.Provider>
+    </IconClientContext.Provider>
   );
 }
 
