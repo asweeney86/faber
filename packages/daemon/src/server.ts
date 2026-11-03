@@ -542,7 +542,7 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
       if (b.q !== undefined && typeof b.q !== "string") throw new HttpError(400, "q must be a string");
       const filters = validateFilters(b.filters);
       if (!b.q?.trim() && !filters) return getFacets(db);
-      const res = await search(ctx.searchDeps, { q: (b.q ?? "").slice(0, 500), filters, limit: 500 });
+      const res = await search(ctx.searchDeps, { q: (b.q ?? "").slice(0, 500), filters, limit: 500 }, { snippets: false });
       return getFacets(db, 30, res.hits.map((h) => h.doc.id));
     }),
     route("GET", "/api/digest", () => buildDigest(ctx.searchDeps)),

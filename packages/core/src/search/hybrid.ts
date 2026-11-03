@@ -95,7 +95,6 @@ const FROM_DOCS = `FROM documents d LEFT JOIN enrichments e ON e.doc_id = d.id A
 interface FtsRow {
   doc_id: string;
   rank: number;
-  snippet: string;
 }
 
 function keywordSearch(db: Database, q: string, filters: SearchFilters | undefined, limit: number): FtsRow[] {
@@ -105,13 +104,31 @@ function keywordSearch(db: Database, q: string, filters: SearchFilters | undefin
   // Column weights: doc_id(0) title summary note tags people projects content
   return db
     .query<FtsRow, Param[]>(
-      `SELECT d.id AS doc_id, bm25(docs_fts, 0, 12, 6, 8, 6, 6, 6, 1) AS rank,
-              snippet(docs_fts, 7, '[', ']', '…', 20) AS snippet
+      `SELECT d.id AS doc_id, bm25(docs_fts, 0, 12, 6, 8, 6, 6, 6, 1) AS rank
        FROM docs_fts JOIN documents d ON d.fts_rowid = docs_fts.rowid
        LEFT JOIN enrichments e ON e.doc_id = d.id AND e.is_current = 1
        WHERE docs_fts MATCH ? AND ${where} ORDER BY rank LIMIT ?`,
     )
     .all(fts, ...params, limit);
+}
+
+/**
+ * Highlighted content snippets for the docs actually shown. snippet() is most of the cost
+ * of a keyword query, so it runs only on the final page, not on every candidate.
+ */
+function snippetsFor(db: Database, q: string, ids: string[]): Map<string, string> {
+  const fts = toFtsQuery(q);
+  if (!fts || !ids.length) return new Map();
+  return new Map(
+    db
+      .query<{ doc_id: string; snippet: string }, string[]>(
+        `SELECT d.id AS doc_id, snippet(docs_fts, 7, '[', ']', '…', 20) AS snippet
+         FROM docs_fts JOIN documents d ON d.fts_rowid = docs_fts.rowid
+         WHERE docs_fts MATCH ? AND d.id IN (${ids.map(() => "?").join(",")})`,
+      )
+      .all(fts, ...ids)
+      .map((r) => [r.doc_id, r.snippet]),
+  );
 }
 
 /** Ids of every doc matching the filters, for restricting semantic search. */
@@ -167,7 +184,8 @@ export interface SearchDeps {
   embedder: Embedder | null;
 }
 
-export async function search(deps: SearchDeps, req: SearchRequest): Promise<SearchResponse> {
+/** `snippets: false` skips highlighting, for callers that only need which docs match (facets). */
+export async function search(deps: SearchDeps, req: SearchRequest, opts: { snippets?: boolean } = {}): Promise<SearchResponse> {
   const started = performance.now();
   const { db, index, embedder } = deps;
   const limit = req.limit ?? 20;
@@ -204,11 +222,11 @@ export async function search(deps: SearchDeps, req: SearchRequest): Promise<Sear
     }
   }
 
-  const fused = new Map<string, SearchHit["signals"] & { rrf: number; snippet: string | null }>();
+  const fused = new Map<string, SearchHit["signals"] & { rrf: number }>();
   const bump = (id: string) => {
     let f = fused.get(id);
     if (!f) {
-      f = { rrf: 0, snippet: null };
+      f = { rrf: 0 };
       fused.set(id, f);
     }
     return f;
@@ -217,7 +235,6 @@ export async function search(deps: SearchDeps, req: SearchRequest): Promise<Sear
     const f = bump(r.doc_id);
     f.rrf += 1 / (RRF_K + i);
     f.keyword = -r.rank;
-    f.snippet = r.snippet || null;
   });
   semantic.forEach((r, i) => {
     const f = bump(r.doc_id);
@@ -243,10 +260,16 @@ export async function search(deps: SearchDeps, req: SearchRequest): Promise<Sear
     hits.push({
       doc,
       score,
-      snippet: f.snippet && f.snippet.includes("[") ? f.snippet : null,
+      snippet: null,
       signals: { keyword: f.keyword, semantic: f.semantic, recency, popularity, frecency },
     });
   }
   hits.sort((a, b) => b.score - a.score);
-  return { hits: hits.slice(0, limit), took_ms: took(), semantic: semanticOk };
+  const page = hits.slice(0, limit);
+  const snippets = opts.snippets === false ? new Map<string, string>() : snippetsFor(db, q, page.filter((h) => h.signals.keyword !== undefined).map((h) => h.doc.id));
+  for (const h of page) {
+    const s = snippets.get(h.doc.id);
+    if (s?.includes("[")) h.snippet = s;
+  }
+  return { hits: page, took_ms: took(), semantic: semanticOk };
 }
