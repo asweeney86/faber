@@ -42,18 +42,18 @@ People upgrade with `brew upgrade faber`, and nobody reads release notes first. 
 ## Releasing
 
 ```bash
-npm run release:dry-run          # what the next release would contain; changes nothing
-npm run release                  # next patch version
-npm run release minor            # or major, or an exact version like 0.2.0
+npm run release
 ```
 
-`scripts/cut-release.ts` checks that you're on a clean, up-to-date `main` whose CI passed, then:
+It checks that you're on a clean, up-to-date `main` whose CI passed, shows the changes since the
+last release, and suggests the next minor version (pick patch, major, or type one instead). Nothing
+changes until you confirm. Then it:
 
 1. Sets the version everywhere (`scripts/version.ts`).
 2. Snapshots this version's database for future upgrade tests (`scripts/fixture.ts`).
 3. Runs the type check and the tests. If anything fails, the bump is undone.
 4. Commits `Release x.y.z` with the merged PR titles since the last release as notes.
-5. Tags `vx.y.z`, pushes, and waits for the release workflow to finish.
+5. Tags `vx.y.z`, pushes, and follows the release workflow until it's published.
 
 `.github/workflows/release.yml` then does the rest:
 
