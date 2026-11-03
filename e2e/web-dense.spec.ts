@@ -71,3 +71,67 @@ test.describe("search results", () => {
     expect(asked).toBe(2);
   });
 });
+
+test.describe("project tree", () => {
+  const project = (id: string, name: string, parent_id: string | null = null) => ({
+    id,
+    name,
+    parent_id,
+    doc_count: 3,
+    last_seen_at: Date.now(),
+    recent_doc_count: 1,
+    new_doc_count: 0,
+    active: true,
+    doc_types: [],
+    top_people: [],
+  });
+
+  test("subprojects fold under their parent, stay as you left them, and a long list scrolls", async ({ page }) => {
+    const many = Array.from({ length: 40 }, (_, i) => project(`p${i}`, `Project ${String(i).padStart(2, "0")}`));
+    await page.route("**/api/projects", (r) =>
+      r.fulfill({ json: [project("atlas", "Atlas"), project("atlas-pricing", "Pricing", "atlas"), project("atlas-billing", "Billing", "atlas"), ...many] }),
+    );
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem("seeded")) {
+        sessionStorage.setItem("seeded", "1");
+        localStorage.setItem("faber:nav-expanded", JSON.stringify({ projects: true }));
+      }
+    });
+    await page.goto("/#/search");
+    const tree = page.getByTestId("nav-project-list");
+    await expect(tree).toContainText("Atlas");
+    await expect(tree).not.toContainText("Pricing");
+
+    const toggle = tree.getByRole("button", { name: "Expand Atlas" });
+    await toggle.click();
+    await expect(tree).toContainText("Pricing");
+    await expect(tree).toContainText("Billing");
+    await expect(tree.getByRole("button", { name: "Collapse Atlas" })).toHaveAttribute("aria-expanded", "true");
+
+    // Remembered across reloads.
+    await page.reload();
+    await expect(page.getByTestId("nav-project-list")).toContainText("Pricing");
+    await page.getByTestId("nav-project-list").getByRole("button", { name: "Collapse Atlas" }).click();
+    await expect(page.getByTestId("nav-project-list")).not.toContainText("Pricing");
+
+    // Every project is listed, and the tree scrolls on its own instead of pushing the nav away.
+    await expect(page.getByTestId("nav-project-list").locator(".nav-sub-link")).toHaveCount(41);
+    const { scroll, client } = await page.getByTestId("nav-project-list").evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight }));
+    expect(scroll).toBeGreaterThan(client);
+    await expect(page.getByTestId("nav-settings")).toBeInViewport();
+  });
+
+  test("opening a subproject opens its parent in the tree", async ({ page }) => {
+    const parent = project("atlas", "Atlas");
+    const child = project("atlas-pricing", "Pricing", "atlas");
+    await page.route("**/api/projects", (r) => r.fulfill({ json: [parent, child] }));
+    await page.route("**/api/projects/atlas-pricing", (r) =>
+      r.fulfill({
+        json: { ...child, docs: [], key_docs: [], meetings: [], people: [], topics: [], related_projects: [], ancestors: [parent], children: [], decisions: [], summary: null, aliases: [], own_doc_ids: [] },
+      }),
+    );
+    await page.addInitScript(() => localStorage.setItem("faber:nav-expanded", JSON.stringify({ projects: true })));
+    await page.goto("/#/projects/atlas-pricing");
+    await expect(page.getByTestId("nav-project-list").locator(".is-active")).toHaveText("Pricing");
+  });
+});

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FaberIcon, FaberWordmark, projectTint } from "@faber/ui";
-import type { ExtensionAccess, StatusResponse } from "@faber/shared";
+import type { ExtensionAccess, ProjectSummary, StatusResponse } from "@faber/shared";
 import { api, isTypingTarget, navigate, OFFLINE_EVENT, plural, useAsync, useChangeBus, useRoute } from "./lib";
 import { IconChevron, IconFolder, IconGrid, IconHome, IconInbox, IconLayers, IconPanel, IconPlus, IconSearch, IconSettings, IconSparkle, IconUsers, IconX } from "./components/icons";
 import { DrawerContext, EmptyState, IssuesBar, LiveContext, Modal, type LiveStatus } from "./components/ui";
@@ -14,7 +14,7 @@ import { SearchPage } from "./pages/Search";
 import { CollectionPage, CollectionsPage } from "./pages/Collections";
 import { MeetingPage, PeoplePage, PersonPage } from "./pages/People";
 import { AskPage } from "./pages/Ask";
-import { ProjectPage, ProjectsPage, projectTree } from "./pages/Projects";
+import { ProjectPage, ProjectsPage } from "./pages/Projects";
 import { InboxPage } from "./pages/Inbox";
 import { DashboardsPage } from "./pages/Dashboards";
 import { SettingsPage } from "./pages/Settings";
@@ -258,6 +258,88 @@ function NavLink({ id, href, label, icon, active, count, hint, attention, expand
   );
 }
 
+/**
+ * Projects as a folder tree: every project, subprojects under their parents behind a
+ * disclosure triangle (remembered per project). The open project's parents are opened for it.
+ */
+function ProjectNavTree({
+  projects,
+  activeId,
+  expanded,
+  toggle,
+}: {
+  projects: ProjectSummary[];
+  activeId: string | undefined;
+  expanded: Record<string, boolean>;
+  toggle: (id: string) => void;
+}) {
+  const { children, parentOf } = useMemo(() => {
+    const ids = new Set(projects.map((p) => p.id));
+    const children = new Map<string | null, ProjectSummary[]>();
+    const parentOf = new Map<string, string>();
+    for (const p of projects) {
+      const parent = p.parent_id && ids.has(p.parent_id) && p.parent_id !== p.id ? p.parent_id : null;
+      if (parent) parentOf.set(p.id, parent);
+      children.set(parent, [...(children.get(parent) ?? []), p]);
+    }
+    return { children, parentOf };
+  }, [projects]);
+  // Ancestors of the open project stay open, so it's always visible in the tree.
+  const forced = useMemo(() => {
+    const out = new Set<string>();
+    for (let id = activeId && parentOf.get(activeId); id && !out.has(id); id = parentOf.get(id)) out.add(id);
+    return out;
+  }, [activeId, parentOf]);
+  const isOpen = (id: string) => forced.has(id) || !!expanded[`project:${id}`];
+  const branch = (parent: string | null, seen: Set<string>): React.ReactNode => (
+    <ul className="nav-sub" role={parent ? "group" : undefined}>
+      {(children.get(parent) ?? []).map((p) => {
+        if (seen.has(p.id)) return null;
+        const kids = (children.get(p.id) ?? []).length;
+        const open = kids > 0 && isOpen(p.id);
+        return (
+          <li key={p.id}>
+            <div className="nav-sub-row">
+              {kids > 0 ? (
+                <button
+                  className={`nav-twisty${open ? " is-open" : ""}`}
+                  onClick={() => toggle(`project:${p.id}`)}
+                  aria-expanded={open}
+                  aria-label={`${open ? "Collapse" : "Expand"} ${p.name}`}
+                  data-testid="nav-project-toggle"
+                  disabled={forced.has(p.id)}
+                >
+                  <IconChevron size={10} />
+                </button>
+              ) : (
+                <span className="nav-twisty-spacer" />
+              )}
+              <a
+                href={`#/projects/${encodeURIComponent(p.id)}`}
+                className={`nav-sub-link${activeId === p.id ? " is-active" : ""}`}
+                data-tint={projectTint(p.id)}
+                title={`${p.name} · ${plural(p.doc_count, "doc")}`}
+              >
+                <IconFolder size={14} />
+                <span className="nav-label">{p.name}</span>
+              </a>
+              <span className="nav-sub-count" aria-hidden="true">
+                {p.doc_count}
+              </span>
+            </div>
+            {open && branch(p.id, new Set([...seen, p.id]))}
+          </li>
+        );
+      })}
+    </ul>
+  );
+  return (
+    <div className="nav-tree" data-testid="nav-project-list">
+      {branch(null, new Set())}
+    </div>
+  );
+}
+
 function Sidebar({ path, live }: { path: string; live: LiveStatus }) {
   const openAdd = useOpenAddDoc();
   const { status, offline, pendingExtensions } = live;
@@ -302,27 +384,7 @@ function Sidebar({ path, live }: { path: string; live: LiveStatus }) {
           expandable={(projects.data?.length ?? 0) > 0 ? { open: !!expanded.projects, toggle: () => toggle("projects") } : undefined}
         />
         {expanded.projects && (projects.data?.length ?? 0) > 0 && (
-          <ul className="nav-sub" data-testid="nav-project-list">
-            {projectTree(projects.data!).slice(0, 12).map(({ project: p, depth }) => (
-              <li key={p.id} style={{ paddingLeft: depth * 14 }}>
-                <a
-                  href={`#/projects/${encodeURIComponent(p.id)}`}
-                  className={`nav-sub-link${within("projects") && sub === p.id ? " is-active" : ""}`}
-                  data-tint={projectTint(p.id)}
-                >
-                  <IconFolder size={15} />
-                  <span className="nav-label">{p.name}</span>
-                </a>
-              </li>
-            ))}
-            {projects.data!.length > 12 && (
-              <li>
-                <a href="#/projects" className="nav-sub-link nav-sub-more">
-                  All {projects.data!.length} projects
-                </a>
-              </li>
-            )}
-          </ul>
+          <ProjectNavTree projects={projects.data!} activeId={within("projects") ? sub : undefined} expanded={expanded} toggle={toggle} />
         )}
         <NavLink
           id="collections"
@@ -335,7 +397,7 @@ function Sidebar({ path, live }: { path: string; live: LiveStatus }) {
         />
         {expanded.collections && (collections.data?.length ?? 0) > 0 && (
           <ul className="nav-sub" data-testid="nav-collection-list">
-            {collections.data!.slice(0, 8).map((c) => (
+            {collections.data!.map((c) => (
               <li key={c.id}>
                 <a href={`#/collections/${c.id}`} className={`nav-sub-link nav-sub-collection${within("collections") && sub === c.id ? " is-active" : ""}`}>
                   <IconLayers size={15} />
