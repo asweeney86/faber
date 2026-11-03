@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { groups, projectDocIds } from "../projects";
-import type { SearchFilters, SearchHit, SearchRequest, SearchResponse } from "@faber/shared";
+import type { SearchFilters, SearchHit, SearchRequest, SearchResponse, SearchSort } from "@faber/shared";
 import { getDocs } from "../docs";
+import { FRECENCY_SQL, frecencies, frecencyParams } from "../frecency";
 import type { Embedder } from "../providers/types";
 import { hasFilters } from "./filters";
 import type { VectorIndex } from "./vectors";
@@ -124,12 +125,20 @@ function filteredIds(db: Database, filters: SearchFilters): Set<string> {
   );
 }
 
-/** Browse without a query: pinned first, then most recently seen. */
-function browse(db: Database, filters: SearchFilters | undefined, limit: number): string[] {
+/** Browse without a query: pinned first, then most used (or most recently seen). */
+function browse(db: Database, filters: SearchFilters | undefined, limit: number, sort: SearchSort): string[] {
   const { where, params } = filterSql(db, filters);
+  if (sort === "recent") {
+    return db
+      .query<{ id: string }, Param[]>(`SELECT d.id ${FROM_DOCS} WHERE ${where} ORDER BY d.pinned DESC, d.last_seen_at DESC LIMIT ?`)
+      .all(...params, limit)
+      .map((r) => r.id);
+  }
   return db
-    .query<{ id: string }, Param[]>(`SELECT d.id ${FROM_DOCS} WHERE ${where} ORDER BY d.pinned DESC, d.last_seen_at DESC LIMIT ?`)
-    .all(...params, limit)
+    .query<{ id: string }, Param[]>(
+      `SELECT d.id, ${FRECENCY_SQL} AS f ${FROM_DOCS} WHERE ${where} ORDER BY d.pinned DESC, f DESC, d.last_seen_at DESC LIMIT ?`,
+    )
+    .all(...frecencyParams(), ...params, limit)
     .map((r) => r.id);
 }
 
@@ -168,7 +177,7 @@ export async function search(deps: SearchDeps, req: SearchRequest): Promise<Sear
   const took = () => Math.round(performance.now() - started);
 
   if (!q) {
-    const ids = browse(db, filters, limit);
+    const ids = browse(db, filters, limit, req.sort === "recent" ? "recent" : "frequent");
     const docs = getDocs(db, ids);
     return {
       hits: ids.flatMap((id) => (docs.get(id) ? [{ doc: docs.get(id)!, score: 0, snippet: null, signals: {} }] : [])),
@@ -218,20 +227,24 @@ export async function search(deps: SearchDeps, req: SearchRequest): Promise<Sear
 
   const docs = getDocs(db, [...fused.keys()]);
   const nowMs = Date.now();
+  const used = frecencies(db, [...fused.keys()], nowMs);
   const hits: SearchHit[] = [];
   for (const [id, f] of fused) {
     const doc = docs.get(id);
     if (!doc) continue;
-    // Light boosts: things you open often and recently are more likely what you mean.
+    // Boosts: things you open often and recently are more likely what you mean.
+    // Frecency ~100 per use this week; log-scaled so a heavy favourite helps without swamping relevance.
     const ageDays = Math.max(0, (nowMs - doc.last_seen_at) / 86_400_000);
     const recency = 1 / (1 + ageDays / 90);
     const popularity = Math.log1p(doc.visit_count) / 5;
-    const score = f.rrf * (1 + 0.15 * recency + 0.1 * popularity + (doc.pinned ? 0.1 : 0));
+    const frecency = used.get(id) ?? 0;
+    const habit = Math.min(1, Math.log1p(frecency) / Math.log1p(2000));
+    const score = f.rrf * (1 + 0.1 * recency + 0.05 * popularity + 0.3 * habit + (doc.pinned ? 0.1 : 0));
     hits.push({
       doc,
       score,
       snippet: f.snippet && f.snippet.includes("[") ? f.snippet : null,
-      signals: { keyword: f.keyword, semantic: f.semantic, recency, popularity },
+      signals: { keyword: f.keyword, semantic: f.semantic, recency, popularity, frecency },
     });
   }
   hits.sort((a, b) => b.score - a.score);

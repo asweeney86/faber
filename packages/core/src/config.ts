@@ -31,6 +31,8 @@ export interface Config {
   privacy: {
     /** Hard stop: when false, any provider that is not localhost is refused. */
     allow_remote: boolean;
+    /** Show each website's own icon, fetched once from the site (default true). */
+    favicons?: boolean;
   };
   enrichment: {
     /** Max characters of document text sent to the enrichment model. */
@@ -99,6 +101,8 @@ base_url = "http://127.0.0.1:11434"
 [privacy]
 # When false, the daemon refuses to send document text to any non-localhost provider.
 allow_remote = false
+# Show each website's icon next to its pages, fetched once from the site itself.
+favicons = true
 
 [enrichment]
 # The start of a document says what it is; reading more mostly costs time.
@@ -197,6 +201,7 @@ export function validateConfig(cfg: Config, path = "config.toml") {
     throw new ConfigError(`${path}: ${msg}`);
   };
   if (typeof cfg.privacy?.allow_remote !== "boolean") fail("privacy.allow_remote must be true or false (no quotes)");
+  if (cfg.privacy.favicons !== undefined && typeof cfg.privacy.favicons !== "boolean") fail("privacy.favicons must be true or false (no quotes)");
   if (!Number.isInteger(cfg.daemon.port) || cfg.daemon.port < 0 || cfg.daemon.port > 65535) fail("daemon.port must be an integer port");
   if (typeof cfg.daemon.host !== "string") fail("daemon.host must be a string");
   // The API trusts loopback: binding elsewhere would expose every document to the network.

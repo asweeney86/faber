@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { DocDetail as DocDetailT } from "@faber/shared";
-import { api, docTitle, emitChange, formatWritten, fullDate, hostOf, navigate, plural, relativeTime, toError, useAsync } from "../lib";
-import { IconCalendar, IconExternal, IconPin, IconPlus, IconPushpin, IconRefresh, IconTrash, IconX, SourceIcon } from "./icons";
-import { ContentState, ErrorBanner, LoadError, Spinner, TypeBadge, useDrawer } from "./ui";
+import { api, docTitle, emitChange, formatWritten, fullDate, hostOf, navigate, openLinkProps, plural, relativeTime, toError, useAsync } from "../lib";
+import { IconCalendar, IconExternal, IconPin, IconPlus, IconPushpin, IconRefresh, IconTrash, IconX } from "./icons";
+import { ContentState, DocIcon, ErrorBanner, LoadError, Spinner, TypeBadge, useDrawer } from "./ui";
 
 export function DocDetailView({ id, onForget }: { id: string; onForget?: () => void }) {
   const doc = useAsync(() => api.doc(id), [id]);
@@ -46,13 +46,13 @@ function DocDetailBody({ doc, onForget }: { doc: DocDetailT; onForget?: () => vo
     <article className="detail" data-testid="doc-detail" data-doc-id={doc.id}>
       <header className="detail-header">
         <div className="detail-title-row">
-          <SourceIcon source={doc.source} size={20} />
+          <DocIcon doc={doc} size={20} />
           <h2 className="detail-title" data-testid="detail-title">
             {docTitle(doc)}
           </h2>
         </div>
         <div className="detail-actions">
-          <a className="btn btn-primary btn-sm" href={doc.canonical_url} target="_blank" rel="noreferrer" data-testid="detail-open">
+          <a className="btn btn-primary btn-sm" {...openLinkProps(doc)} data-testid="detail-open">
             Open <IconExternal size={13} />
           </a>
           <button
@@ -477,7 +477,7 @@ function RelatedDocs({ id }: { id: string }) {
     <div className="related" data-testid="related">
       {items.slice(0, 6).map((r) => (
         <button key={r.doc.id} className="related-item" onClick={() => drawer.openDoc(r.doc.id)}>
-          <SourceIcon source={r.doc.source} size={14} />
+          <DocIcon doc={r.doc} size={14} />
           <span className="related-title">{docTitle(r.doc)}</span>
           <span className="related-reasons">{r.reasons.join(" · ")}</span>
         </button>

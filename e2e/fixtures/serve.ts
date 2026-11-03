@@ -24,6 +24,10 @@ model = "fake-embed"
 [enrich]
 provider = "fake"
 model = "fake-enrich"
+
+[privacy]
+# Tests never reach the internet; they stub site icons where they need them.
+favicons = ${process.env.FABER_E2E_FAVICONS === "1" ? "true" : "false"}
 `,
 );
 

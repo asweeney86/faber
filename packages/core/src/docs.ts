@@ -53,6 +53,9 @@ interface EnrichmentRow {
   created_at: number;
 }
 
+/** A browser visit this soon after opening the doc from Faber (frecency.ts recordOpen) is that same open. */
+export const OPEN_MERGE_MS = 2 * 60_000;
+
 export interface VisitInput {
   url: string;
   title?: string;
@@ -117,14 +120,23 @@ export function recordVisit(db: Database, v: VisitInput): { row: DocRow; created
     if (authuser !== undefined && authuser !== null && authuser !== row.google_authuser && ts >= row.last_seen_at) {
       db.run(`UPDATE documents SET google_authuser = ? WHERE id = ?`, [authuser, row.id]);
     }
-    const inserted = db.run(
-      `INSERT OR IGNORE INTO visits (doc_id, ts, referrer, dwell_ms, origin) VALUES (?, ?, ?, ?, ?)`,
-      [row.id, ts, v.referrer ?? null, v.dwell_ms ?? null, origin],
-    );
-    if (inserted.changes > 0) {
+    // Opening a doc from Faber records the visit itself; the browser then reports the same page load.
+    const sameAsOpen =
+      origin === "live" &&
+      db.query(`SELECT 1 FROM visits WHERE doc_id = ? AND origin = 'faber' AND ts BETWEEN ? AND ?`).get(row.id, ts - OPEN_MERGE_MS, ts) !== null;
+    const inserted = sameAsOpen
+      ? { changes: 0 }
+      : db.run(`INSERT OR IGNORE INTO visits (doc_id, ts, referrer, dwell_ms, origin) VALUES (?, ?, ?, ?, ?)`, [
+          row.id,
+          ts,
+          v.referrer ?? null,
+          v.dwell_ms ?? null,
+          origin,
+        ]);
+    if (inserted.changes > 0 || sameAsOpen) {
       db.run(
         `UPDATE documents SET
-           visit_count = visit_count + 1,
+           visit_count = visit_count + ${sameAsOpen ? 0 : 1},
            first_seen_at = MIN(first_seen_at, ?),
            last_seen_at = MAX(last_seen_at, ?),
            title = CASE WHEN ? != '' AND (title = '' OR ? >= last_seen_at) THEN ? ELSE title END,

@@ -12,17 +12,17 @@
   --r-sm: 6px;
   --r: 9px;
   --r-lg: 12px;
-  --sidebar-w: 248px;
+  --sidebar-w: 232px;
 
   /* Density: rows and cards breathe in "comfortable", tighten in "compact". */
-  --row-y: 7px;
-  --card-pad: 18px;
-  --gap: 16px;
+  --row-y: 5px;
+  --card-pad: 16px;
+  --gap: 14px;
 }
 :root[data-density="compact"] {
-  --row-y: 4px;
-  --card-pad: 13px;
-  --gap: 11px;
+  --row-y: 3px;
+  --card-pad: 12px;
+  --gap: 10px;
 }
 
 * {
@@ -148,18 +148,18 @@ select {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 18px 14px 14px;
+  padding: 14px 10px 10px;
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 2px 6px 18px;
+  gap: 10px;
+  padding: 2px 6px 12px;
   color: var(--text);
 }
 .brand:hover {
@@ -176,9 +176,11 @@ select {
   align-items: center;
   gap: 9px;
   width: 100%;
-  height: 40px;
-  padding: 0 10px 0 12px;
-  margin-bottom: 16px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  margin-bottom: 10px;
+  flex: none;
+  font-size: 13.5px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r);
   background: var(--bg-elev);
@@ -198,7 +200,14 @@ select {
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -4px;
+  padding: 0 4px 8px;
+  scrollbar-width: thin;
 }
 .nav-item {
   display: flex;
@@ -219,11 +228,11 @@ select {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: var(--row-y) 10px;
+  gap: 10px;
+  padding: var(--row-y) 8px;
   color: inherit;
   font-weight: 500;
-  font-size: 14.5px;
+  font-size: 13.5px;
 }
 .nav-link:hover {
   text-decoration: none;
@@ -253,9 +262,9 @@ select {
 .nav-expand {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  margin-right: 4px;
+  width: 24px;
+  height: 24px;
+  margin-right: 2px;
   border: none;
   border-radius: var(--r-sm);
   background: transparent;
@@ -273,32 +282,85 @@ select {
   transform: rotate(90deg);
 }
 .nav-group-label {
-  margin: 16px 10px 6px;
-  font-size: 12.5px;
+  margin: 12px 8px 4px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--text-muted);
 }
 .nav-sep {
   height: 1px;
-  margin: 12px 8px;
+  margin: 8px 8px;
   background: var(--border);
 }
 .nav-sub {
   list-style: none;
-  margin: 2px 0 6px;
-  padding: 0 0 0 22px;
+  margin: 1px 0 4px;
+  padding: 0 0 0 14px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
+}
+/* The project tree scrolls on its own, so a long list doesn't push the rest of the nav away. */
+.nav-tree {
+  max-height: 45vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.nav-sub .nav-sub {
+  margin: 0;
+  padding-left: 12px;
+}
+.nav-sub-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.nav-sub-row > .nav-sub-link {
+  flex: 1;
+  min-width: 0;
+}
+.nav-twisty {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.nav-twisty:hover {
+  color: var(--text);
+  background: var(--bg-active);
+}
+.nav-twisty svg {
+  transition: transform 0.12s ease;
+}
+.nav-twisty.is-open svg {
+  transform: rotate(90deg);
+}
+.nav-twisty-spacer {
+  flex: none;
+  width: 16px;
+}
+.nav-sub-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
 .nav-sub-link {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: calc(var(--row-y) - 1px) 10px;
+  gap: 7px;
+  padding: calc(var(--row-y) - 1px) 6px;
   border-radius: var(--r-sm);
   color: var(--text-2);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 .nav-sub-link svg {
   flex: none;
@@ -320,11 +382,12 @@ select {
 }
 
 .sidebar-foot {
-  margin-top: auto;
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 16px;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
 
 
@@ -380,8 +443,8 @@ select {
 /* ---------- Page ---------- */
 
 .page {
-  max-width: 1240px;
-  padding: 28px 40px 64px;
+  max-width: 1320px;
+  padding: 20px 28px 48px;
 }
 /* Narrow pages keep the same left edge; only their reading column is limited. */
 .page-narrow > * {
@@ -955,8 +1018,8 @@ button.tag:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 50px;
-  padding: 0 12px 0 16px;
+  height: 42px;
+  padding: 0 10px 0 14px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-lg);
   background: var(--bg-elev);
@@ -973,7 +1036,7 @@ button.tag:hover {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 16px;
+  font-size: 15px;
   color: var(--text);
 }
 .search-bar input::placeholder {
@@ -985,7 +1048,7 @@ button.tag:hover {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  margin: 12px 0 0;
+  margin: 8px 0 0;
 }
 .filter-group {
   display: flex;
@@ -1105,19 +1168,19 @@ button.tag:hover {
 
 .search-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 236px;
-  gap: 28px;
-  margin-top: 18px;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 24px;
+  margin-top: 14px;
   align-items: start;
 }
 
 .results-meta {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   font-size: 12.5px;
   color: var(--text-2);
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   min-height: 22px;
 }
 .kbd-hints {
@@ -1136,17 +1199,18 @@ button.tag:hover {
 }
 
 .search-results {
+  container: results / inline-size;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
 }
 
 .result {
   background: var(--bg-elev);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 13px 16px 13px;
+  border-radius: var(--r);
+  padding: 8px 12px 9px;
   cursor: pointer;
   transition: border-color 0.1s, box-shadow 0.1s;
   scroll-margin: 16px;
@@ -1164,11 +1228,16 @@ button.tag:hover {
 .result-head {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
+  min-width: 0;
+}
+.result-head > .source-icon,
+.result-head > .favicon {
+  flex-shrink: 0;
 }
 .result-title {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--text);
   min-width: 0;
   display: inline-flex;
@@ -1204,18 +1273,44 @@ button.tag:hover {
   font-size: 12.5px;
   color: var(--text-muted);
 }
+/* One line beside the title, pushed right; drops the least useful parts first when narrow. */
+.doc-meta.doc-meta-inline {
+  flex-wrap: nowrap;
+  margin: 0 0 0 auto;
+  padding-left: 8px;
+  gap: 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.doc-meta-inline .badge {
+  height: 18px;
+  font-size: 11px;
+  padding: 0 6px;
+}
+.doc-meta-count {
+  min-width: 24px;
+  text-align: right;
+  color: var(--text-faint);
+}
+@container results (max-width: 560px) {
+  .doc-meta-written {
+    display: none;
+  }
+}
 .result-summary {
-  margin: 7px 0 0 27px;
+  margin: 3px 0 0 24px;
   color: var(--text-2);
-  font-size: 13.5px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .snippet {
-  margin: 7px 0 0 27px;
+  margin: 5px 0 0 24px;
   padding: 6px 10px;
   border-left: 2px solid var(--border-strong);
   background: var(--bg-sunken);
@@ -1232,16 +1327,38 @@ button.tag:hover {
   overflow: hidden;
 }
 .result-note {
-  margin: 6px 0 0 27px;
-  font-size: 13px;
+  margin: 3px 0 0 24px;
+  font-size: 12.5px;
   color: var(--accent-text);
   font-style: italic;
 }
 .result-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  margin: 10px 0 0 27px;
+  gap: 4px;
+  margin: 6px 0 0 24px;
+}
+.result-chips .chip,
+.result-chips .tag {
+  height: 19px;
+  font-size: 11.5px;
+  padding: 0 6px;
+}
+.segmented-sm button {
+  height: 20px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+.favicon {
+  display: inline-block;
+  border-radius: 3px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+/* Many icons are drawn dark-on-transparent (GitHub's is black): give them a light tile in dark mode. */
+:root[data-mode="dark"] .favicon {
+  background: color-mix(in srgb, white 88%, transparent);
+  padding: 1px;
 }
 
 .result.skeleton {
@@ -2372,6 +2489,9 @@ button.tag:hover {
   }
   .nav {
     flex-direction: row;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
   }
   .brand {
     padding: 0 6px;
@@ -3123,8 +3243,8 @@ button.tag:hover {
   top: 28px;
 }
 .home .home-search {
-  height: 52px;
-  margin-bottom: 18px;
+  height: 42px;
+  margin-bottom: 12px;
   border-radius: var(--r-lg);
   box-shadow: none;
 }
@@ -3143,20 +3263,32 @@ button.tag:hover {
 .tiles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
+/* Icon beside the label: a row of shortcuts, not a wall of cards. */
 .tile {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 9px;
   align-items: center;
-  gap: 4px;
-  padding: 16px 10px 14px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  border-radius: var(--r);
   background: var(--bg-elev);
   color: var(--text);
-  text-align: center;
+  text-align: left;
+}
+.tile > .tile-icon {
+  grid-row: span 2;
+}
+.tile-title,
+.tile-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tile:hover {
   background: var(--bg-hover);
@@ -3164,34 +3296,33 @@ button.tag:hover {
 }
 .tile-icon {
   display: flex;
-  margin-bottom: 4px;
   color: var(--accent-text);
 }
 .tile-title {
-  font-weight: 650;
-  font-size: 15px;
+  font-weight: 600;
+  font-size: 13.5px;
 }
 .tile-hint {
-  font-size: 12.5px;
+  font-size: 11.5px;
   color: var(--text-muted);
 }
 
 .projects-panel {
   padding: var(--card-pad);
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 .panel-header {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 .panel-header h2 {
-  font-size: 17px;
+  font-size: 15px;
 }
 .panel-header p {
-  margin: 2px 0 0;
-  font-size: 13.5px;
+  margin: 1px 0 0;
+  font-size: 12.5px;
 }
 .panel-header .btn {
   margin-left: auto;
@@ -3213,8 +3344,8 @@ button.tag:hover {
 
 .project-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
 }
 .project-grid {
   display: grid;
@@ -3226,9 +3357,9 @@ button.tag:hover {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  padding: 14px 16px;
+  padding: 10px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-lg);
+  border-radius: var(--r);
   background: var(--bg-elev);
   color: var(--text);
 }
@@ -4224,8 +4355,8 @@ button.tag:hover {
   margin-left: auto;
 }
 
-/* Short windows: the sidebar scrolls instead of squashing its items. */
-.sidebar > * {
+/* Short windows: the nav scrolls between the fixed header and footer instead of squashing items. */
+.sidebar > :not(.nav) {
   flex-shrink: 0;
 }
 

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Doc, DocType, ExtensionAccess, StatusResponse } from "@faber/shared";
 import { ApiRequestError } from "@faber/shared";
-import { DOC_TYPE_LABELS, docTitle, formatWritten, OfflineError, relativeTime, snippetParts } from "../lib";
+import { DOC_TYPE_LABELS, docTitle, formatWritten, hostOf, OfflineError, relativeTime, snippetParts } from "../lib";
 import { IconAlert, IconPin, SourceIcon } from "./icons";
 
 // ---------- Drawer context ----------
@@ -28,6 +28,39 @@ export const usePendingExtensions = () => useContext(LiveContext).pendingExtensi
 export const useIsEmptyLibrary = () => useContext(LiveContext).status?.docs === 0;
 
 // ---------- Primitives ----------
+
+/** Hosts known to have no icon, so other pages from them don't ask again this session. */
+const noIcon = new Set<string>();
+
+/**
+ * A document's icon: the website's own favicon for web pages (fetched and cached by the
+ * daemon), the Docs/Slides/Sheets glyph otherwise, or while the favicon loads.
+ */
+export function DocIcon({ doc, size = 16 }: { doc: Pick<Doc, "id" | "source" | "canonical_url">; size?: number }) {
+  const host = (doc.source === "url" && hostOf(doc.canonical_url)) || "";
+  const [state, setState] = useState<"loading" | "ok" | "none">(host && !noIcon.has(host) ? "loading" : "none");
+  if (state === "none") return <SourceIcon source={doc.source} size={size} />;
+  return (
+    <>
+      {state === "loading" && <SourceIcon source={doc.source} size={size} />}
+      <img
+        className="favicon"
+        src={`/api/docs/${encodeURIComponent(doc.id)}/favicon`}
+        width={size}
+        height={size}
+        alt=""
+        aria-hidden
+        // Hidden (not display:none, which would stop it loading) until it arrives; a 204 "no icon" is an error.
+        style={state === "loading" ? { position: "absolute", opacity: 0, pointerEvents: "none" } : undefined}
+        onLoad={() => setState("ok")}
+        onError={() => {
+          noIcon.add(host);
+          setState("none");
+        }}
+      />
+    </>
+  );
+}
 
 export function Spinner({ size = 14, label }: { size?: number; label?: string }) {
   return <span className="spinner" style={{ width: size, height: size }} role="status" aria-label={label ?? "Loading"} />;
@@ -128,8 +161,25 @@ export function useNow(intervalMs = 30_000) {
   return now;
 }
 
-export function DocMeta({ doc, now }: { doc: Doc; now?: number }) {
+export function DocMeta({ doc, now, inline }: { doc: Doc; now?: number; inline?: boolean }) {
   const written = formatWritten(doc.enrichment?.written_at);
+  if (inline) {
+    // One line, for dense lists: type · written · last opened · opens.
+    return (
+      <div className="doc-meta doc-meta-inline">
+        {doc.enrichment ? <TypeBadge type={doc.enrichment.doc_type} /> : <ContentState doc={doc} compact />}
+        {written && (
+          <span className="doc-meta-written" title="Estimated date written">
+            {written}
+          </span>
+        )}
+        <span title={`Last opened ${new Date(doc.last_seen_at).toLocaleString()}`}>{relativeTime(doc.last_seen_at, now)}</span>
+        <span className="doc-meta-count" title={`Opened ${doc.visit_count} ${doc.visit_count === 1 ? "time" : "times"}`}>
+          {doc.visit_count}×
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="doc-meta">
       {doc.enrichment ? <TypeBadge type={doc.enrichment.doc_type} /> : <ContentState doc={doc} compact />}
@@ -184,7 +234,7 @@ export function DocRow({ doc, extra, actions, testId }: { doc: Doc; extra?: Reac
   return (
     <div className={`doc-row${drawer.docId === doc.id ? " is-active" : ""}`} data-testid={testId ?? "doc-row"} data-doc-id={doc.id}>
       <button className="doc-row-main" onClick={() => drawer.openDoc(doc.id)} title={doc.enrichment?.summary ?? docTitle(doc)}>
-        <SourceIcon source={doc.source} size={16} />
+        <DocIcon doc={doc} size={16} />
         <span className="doc-row-title">{docTitle(doc)}</span>
         {doc.pinned && <IconPin size={12} filled className="pin-mark" />}
         {doc.enrichment && <TypeBadge type={doc.enrichment.doc_type} />}

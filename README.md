@@ -41,7 +41,7 @@ On a Mac, a tiny menu-bar app puts the same launcher a keystroke away from any a
 
 ### Search the way you remember
 
-Keyword search (SQLite FTS5) and semantic search (local embeddings) are fused into one ranking, boosted by how often and how recently you opened something. Filter by type, person, project, tag or time, and save any search as a view.
+Keyword search (SQLite FTS5) and semantic search (local embeddings) are fused into one ranking, boosted by how often and how recently you open something (opening it from Faber counts most). With no query, the list shows what you use most, or switch to most recent. Filter by type, person, project, tag or time, and save any search as a view.
 
 <img src="docs/screenshots/search.png" alt="Search results for a vague, descriptive query">
 
@@ -105,6 +105,7 @@ Faber stores confidential work documents, so its defaults are conservative:
 
 - 🔒 **Nothing is captured until you enable it.** Every watch rule starts off. Incognito tabs are never captured, and only tabs you actually look at count.
 - 💻 **Everything stays on your machine.** All data lives in one SQLite file in `~/.faber`. The server only listens on your own machine (loopback), and the config refuses anything else.
+- 🌐 **Site icons come from the site itself.** For saved web pages, the daemon asks that site for its icon (never a third-party icon service) and caches it. `privacy.favicons = false` turns this off.
 - 🧠 **AI runs locally by default.** The default is Qwen 3 via [Ollama](https://ollama.com). Remote providers (Anthropic, OpenAI-compatible) are **blocked** until you set `privacy.allow_remote = true`.
 - 🛡️ **Websites can't read it.** Cross-origin requests are rejected, the `Host` header must be a loopback name (this blocks DNS rebinding), and browser extensions must be approved before they can call the API.
 
@@ -260,6 +261,7 @@ model = "qwen3:4b"            # or "qwen3:8b": a little more thorough, ~2× slow
 
 [privacy]
 allow_remote = false          # must be true for anthropic / claude-cli / remote URLs
+favicons = true               # fetch each saved website's icon from that site
 
 [search]
 # min_semantic = 0.47         # similarity floor for semantic matches (tuned per model)

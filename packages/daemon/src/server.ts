@@ -9,6 +9,7 @@ import {
   deleteCollection,
   deleteDoc,
   enqueueEnrichment,
+  recordOpen,
   PROMPT_VERSION,
   exportCollection,
   getCollection,
@@ -105,6 +106,7 @@ import type {
 import { PAIRING_REQUIRED_MESSAGE } from "@faber/shared";
 import type { AppContext } from "./context";
 import { checkRequest, corsHeaders, effectiveMethod, extensionIdOf } from "./security";
+import { Favicons, type Fetcher } from "./favicons";
 import { ModelChangeError, ModelManager } from "./models";
 import indexPage from "../../web/index.html";
 import launcherPage from "../../web/launcher.html";
@@ -199,6 +201,8 @@ export interface ServerOptions {
   /** Start draining the enrichment queue in the background. Default true. */
   autoEnrich?: boolean;
   log?: (msg: string) => void;
+  /** How site icons are fetched (tests stub it). */
+  fetchFavicon?: Fetcher;
 }
 
 export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
@@ -301,6 +305,8 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
     if (!getDocRow(db, id)) throw new HttpError(404, "document not found");
     return id;
   };
+
+  const favicons = new Favicons(cfg.home, opts.fetchFavicon);
 
   const routes: Route[] = [
     route("GET", "/api/models", () => models.state()),
@@ -409,6 +415,24 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
       return getDoc(db, row.id);
     }),
 
+    // The site's own icon, for <img> tags. Only for documents in the library, so a page
+    // elsewhere can't make the daemon fetch arbitrary hosts.
+    route("GET", "/api/docs/:id/favicon", async (req, p) => {
+      if (req.headers.get("sec-fetch-site") === "cross-site") throw new HttpError(403, "cross-site");
+      const doc = getDocRow(db, p.id!);
+      if (!doc) throw new HttpError(404, "document not found");
+      const icon = cfg.privacy.favicons === false || doc.source !== "url" ? null : await favicons.get(doc.canonical_url);
+      if (!icon) return new Response(null, { status: 204, headers: { "cache-control": "private, max-age=86400" } });
+      return new Response(icon.bytes, {
+        headers: {
+          "content-type": icon.type,
+          "cache-control": "private, max-age=604800",
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+        },
+      });
+    }),
+
     route("GET", "/api/docs/:id", async (_req, p) => {
       const d = getDocDetail(db, p.id!);
       if (!d) throw new HttpError(404, "document not found");
@@ -482,17 +506,25 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
       return { ok: true };
     }),
 
+    /** The user opened this doc from Faber: counts toward how often it's used. */
+    route("POST", "/api/docs/:id/open", (_req, p) => {
+      if (!recordOpen(db, p.id!)) throw new HttpError(404, "document not found");
+      return { ok: true };
+    }),
+
     route("GET", "/api/docs/:id/related", (_req, p) => relatedDocs(db, ctx.index, requireDoc(p.id!))),
 
     route("POST", "/api/search", async (req) => {
       const b = await body<SearchRequest>(req);
       if (typeof b.q !== "string") throw new HttpError(400, "q must be a string");
       if (b.mode !== undefined && !["hybrid", "keyword", "semantic"].includes(b.mode)) throw new HttpError(400, "invalid mode");
+      if (b.sort !== undefined && b.sort !== "frequent" && b.sort !== "recent") throw new HttpError(400, 'sort must be "frequent" or "recent"');
       return search(ctx.searchDeps, {
         q: b.q.slice(0, 500),
         filters: validateFilters(b.filters),
         limit: clampLimit(b.limit, 20, 200),
         mode: b.mode,
+        sort: b.sort,
       });
     }),
     route("GET", "/api/search", (_req, _p, url) =>
@@ -710,6 +742,7 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
           }
         });
         const result = await r.handler(req, params, url);
+        if (result instanceof Response) return result;
         return Response.json(result ?? { ok: true }, { headers: cors });
       } catch (err) {
         const status =

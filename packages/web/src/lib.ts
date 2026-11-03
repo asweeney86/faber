@@ -1,9 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PbClient, type Doc, type DocSource, type DocType, type SearchFilters } from "@faber/shared";
+import { PbClient, type Doc, type DocSource, type DocType, type SearchFilters, type SearchSort } from "@faber/shared";
 export { DOC_TYPE_LABELS, formatWritten, plural, relativeTime } from "@faber/shared";
 export { useDebounced } from "@faber/ui";
 
 export const api = new PbClient("");
+
+/** Count an open from Faber toward the doc's frecency (fire and forget). */
+export function noteOpened(docId: string) {
+  void api.opened(docId).catch(() => {});
+}
+
+/** Props for an <a> that opens a doc's original: clicks and middle-clicks count as opens. */
+export function openLinkProps(doc: { id: string; canonical_url: string }) {
+  return {
+    href: doc.canonical_url,
+    target: "_blank",
+    rel: "noreferrer",
+    onClick: () => noteOpened(doc.id),
+    onAuxClick: (e: { button: number }) => {
+      if (e.button === 1) noteOpened(doc.id);
+    },
+  };
+}
 
 // ---------- Change bus ----------
 // Any mutation calls emitChange(); data hooks listening to the bus refetch, so a pin
@@ -174,6 +192,8 @@ export interface SearchState {
   projects: string[];
   pinned: boolean;
   time: TimeRange;
+  /** Order without a query. */
+  sort: SearchSort;
 }
 
 export function searchStateFromQuery(p: URLSearchParams): SearchState {
@@ -187,6 +207,7 @@ export function searchStateFromQuery(p: URLSearchParams): SearchState {
     projects: p.getAll("project"),
     pinned: p.get("pinned") === "1",
     time: time && TIME_RANGES.some((t) => t.id === time) ? time : "all",
+    sort: p.get("sort") === "recent" ? "recent" : "frequent",
   };
 }
 
@@ -200,6 +221,7 @@ export function searchStateToHash(s: SearchState): string {
   s.projects.forEach((v) => p.append("project", v));
   if (s.pinned) p.set("pinned", "1");
   if (s.time !== "all") p.set("time", s.time);
+  if (s.sort === "recent") p.set("sort", "recent");
   const qs = p.toString();
   return `#/search${qs ? `?${qs}` : ""}`;
 }
