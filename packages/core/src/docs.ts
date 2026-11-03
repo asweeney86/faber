@@ -469,6 +469,32 @@ export interface Stats {
   queue: { pending: number; running: number; error: number };
 }
 
+/**
+ * Changes whenever anything the app shows changes: documents, visits, summaries, tags,
+ * collections, projects, views, the queue. Clients poll it (in GET /api/status) and reload
+ * when it moves, so captures from the extension and finished summaries appear on their own.
+ * Bookkeeping that nothing displays (extension last-seen times, settings) doesn't count.
+ */
+export function libraryRevision(db: Database): string {
+  const row = db
+    .query<Record<string, number | null>, []>(
+      `SELECT
+         (SELECT COUNT(*) || '.' || IFNULL(MAX(updated_at), 0) FROM documents) d,
+         (SELECT IFNULL(MAX(id), 0) FROM visits) v,
+         (SELECT COUNT(*) || '.' || IFNULL(MAX(id), 0) FROM enrichments) e,
+         (SELECT COUNT(*) || '.' || IFNULL(MAX(created_at), 0) FROM tags) t,
+         (SELECT COUNT(*) || '.' || IFNULL(MAX(updated_at), 0) FROM collections) c,
+         (SELECT COUNT(*) || '.' || IFNULL(SUM(state = 'pin'), 0) FROM collection_docs) cd,
+         (SELECT COUNT(*) || '.' || IFNULL(MAX(updated_at), 0) FROM project_rules) pr,
+         (SELECT COUNT(*) || '.' || IFNULL(MAX(updated_at), 0) FROM doc_projects) dp,
+         (SELECT COUNT(*) || '.' || IFNULL(MAX(updated_at), 0) FROM views) w,
+         (SELECT COUNT(*) FROM review_dismissed) r,
+         (SELECT GROUP_CONCAT(status || n) FROM (SELECT status, COUNT(*) n FROM enrich_queue GROUP BY status ORDER BY status)) q`,
+    )
+    .get()!;
+  return Object.values(row).join("|");
+}
+
 export function stats(db: Database): Stats {
   const one = (sql: string) => db.query<{ n: number }, []>(sql).get()!.n;
   return {

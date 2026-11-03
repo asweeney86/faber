@@ -149,3 +149,19 @@ test.describe("project tree", () => {
     await expect(page.getByTestId("nav-project-list").locator(".is-active")).toHaveText("Pricing");
   });
 });
+
+test.describe("live updates", () => {
+  test("a document captured elsewhere appears without reloading the page", async ({ page }) => {
+    await page.goto("/#/search?sort=recent");
+    await expect(page.getByTestId("result").first()).toBeVisible();
+    const title = `Captured while you watch ${Date.now()}`;
+    // As the extension would: a new document arrives at the daemon, not through this tab.
+    const res = await page.request.post("/api/docs", { data: { url: `https://wiki.example.com/live/${Date.now()}`, title } });
+    const { doc } = (await res.json()) as { doc: { id: string } };
+    try {
+      await expect(page.getByTestId("result").filter({ hasText: title })).toBeVisible({ timeout: 12_000 });
+    } finally {
+      await page.request.delete(`/api/docs/${doc.id}`);
+    }
+  });
+});
