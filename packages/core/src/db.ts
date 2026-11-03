@@ -346,6 +346,8 @@ function migrate(db: Database, stored: number | null) {
     rebuildFts(db);
   }
   db.exec("CREATE INDEX IF NOT EXISTS documents_fts_rowid ON documents(fts_rowid)");
+  // Older versions queued docs before their text arrived; those jobs could never run and showed as pending forever.
+  db.exec(`DELETE FROM enrich_queue WHERE status = 'pending' AND doc_id IN (SELECT id FROM documents WHERE content IS NULL)`);
   const setMeta = (key: string, value: number) =>
     db.run("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, String(value)]);
   // Never lower these: an older Faber opening a newer database must not hide what the newer one added.

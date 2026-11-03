@@ -9,14 +9,18 @@ export function priorityFor(visitCount: number, lastSeenAt: number, pinned: bool
   return (pinned ? 1000 : 0) + Math.log1p(visitCount) * 10 - Math.log1p(ageDays);
 }
 
-/** (Re)queue a doc. A fresh request always starts over: attempts and backoff are reset. */
+/**
+ * (Re)queue a doc. A fresh request always starts over: attempts and backoff are reset.
+ * Docs without text are skipped: there is nothing to summarise yet, and storing the text
+ * (setContent) queues them when it arrives.
+ */
 export function enqueueEnrichment(db: Database, docId: string, priority?: number, opts: { force?: boolean } = {}) {
   const row = db
-    .query<{ visit_count: number; last_seen_at: number; pinned: number }, [string]>(
-      `SELECT visit_count, last_seen_at, pinned FROM documents WHERE id = ?`,
+    .query<{ visit_count: number; last_seen_at: number; pinned: number; has_content: number }, [string]>(
+      `SELECT visit_count, last_seen_at, pinned, content IS NOT NULL AS has_content FROM documents WHERE id = ?`,
     )
     .get(docId);
-  if (!row) return;
+  if (!row?.has_content) return;
   const p = priority ?? priorityFor(row.visit_count, row.last_seen_at, row.pinned === 1);
   db.run(
     `INSERT INTO enrich_queue (doc_id, priority, status, attempts, last_error, next_attempt_at, force, updated_at)
