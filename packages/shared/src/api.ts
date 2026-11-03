@@ -574,6 +574,7 @@ export interface ModelsState {
   /** Documents still to re-index for search with the current embedding model. */
   reindex_remaining: number;
   /** Documents whose summary was written by a different model than the current one. */
+  /** Current summaries written by another model, or by an older version of Faber's prompt. */
   summaries_from_other_models: number;
 }
 

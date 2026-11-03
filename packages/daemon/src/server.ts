@@ -9,6 +9,7 @@ import {
   deleteCollection,
   deleteDoc,
   enqueueEnrichment,
+  PROMPT_VERSION,
   exportCollection,
   getCollection,
   getCollectionRow,
@@ -313,15 +314,15 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
       models.dismissPullError();
       return models.state();
     }),
-    /** Re-summarise documents whose summary came from another model, with the current one. */
+    /** Re-summarise documents whose summary came from another model (or an older prompt), with the current one. */
     route("POST", "/api/models/resummarise", (req) => {
       requireUser(req);
       const ids = db
-        .query<{ id: string }, [string, string]>(
+        .query<{ id: string }, [string, string, number]>(
           `SELECT d.id FROM documents d JOIN enrichments e ON e.doc_id = d.id AND e.is_current = 1
-           WHERE d.content IS NOT NULL AND NOT (e.provider = ? AND e.model = ?)`,
+           WHERE d.content IS NOT NULL AND NOT (e.provider = ? AND e.model = ? AND e.prompt_version = ?)`,
         )
-        .all(cfg.enrich.provider, cfg.enrich.model);
+        .all(cfg.enrich.provider, cfg.enrich.model, PROMPT_VERSION);
       for (const { id } of ids) enqueueEnrichment(db, id, undefined, { force: true });
       kickQueue();
       return { queued: ids.length };

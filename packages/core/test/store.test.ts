@@ -22,6 +22,7 @@ import {
 } from "../src/docs";
 import { claimJobs, enqueueEnrichment, failJob, recoverStaleJobs } from "../src/enrich/queue";
 import { runQueue } from "../src/enrich/run";
+import { PROMPT_VERSION } from "../src/enrich/prompt";
 import { importChromeHistory, listChromeProfiles, readGoogleDocVisits, resolveProfile } from "../src/import/chrome";
 import { linkDocToMeeting, getMeeting, listMeetings } from "../src/meetings";
 import { getPerson, listPeople, prunePeople } from "../src/people";
@@ -162,7 +163,7 @@ describe("enrichment queue", () => {
     const env = testEnv();
     const id = await env.addDoc(gdocUrl(10), "Rate limits", "Author: Maya Chen\nProject Atlas rate limits for the gateway. Rate limits matter.");
     const doc = getDocDetail(env.db, id)!;
-    expect(doc.enrichment).toMatchObject({ provider: "fake", model: "fake-enrich", prompt_version: 1 });
+    expect(doc.enrichment).toMatchObject({ provider: "fake", model: "fake-enrich", prompt_version: PROMPT_VERSION });
     expect(doc.enrichment!.projects).toEqual(["Atlas"]);
     expect(doc.people.map((p) => p.name)).toContain("Maya Chen");
     expect(doc.tags.every((t) => t.source === "auto")).toBe(true);

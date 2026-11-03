@@ -589,10 +589,10 @@ function ModelsSection() {
               onDismiss={() => act(() => api.dismissModelPull())}
               ready={status.data?.enricher_ok}
             >
-              {models.summaries_from_other_models > 0 && models.enrich.editable && (
+              {models.summaries_from_other_models > 0 && (
                 <p className="model-note" data-testid="resummarise-note">
-                  {plural(models.summaries_from_other_models, "document")} {models.summaries_from_other_models === 1 ? "was" : "were"} summarised by another model. New documents use{" "}
-                  {models.enrich.model}.{" "}
+                  {plural(models.summaries_from_other_models, "document")} {models.summaries_from_other_models === 1 ? "has a summary" : "have summaries"} from another model or an
+                  older version of Faber. New documents use {models.enrich.model}.{" "}
                   {queued !== null ? (
                     <span className="muted">Queued {plural(queued, "document")}.</span>
                   ) : (

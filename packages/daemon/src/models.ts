@@ -3,7 +3,7 @@
  * models are in use, downloading a new one, switching to it without a restart, and
  * re-indexing documents for search after the embedding model changes.
  */
-import { countNeedingEmbedding, hasModel, ollamaModels, type Config } from "@faber/core";
+import { countNeedingEmbedding, hasModel, ollamaModels, PROMPT_VERSION, type Config } from "@faber/core";
 import { MODEL_CHOICES, sameModel, validModelName, type ModelChange, type ModelKind, type ModelsState, type ModelSlotState } from "@faber/shared";
 import type { AppContext } from "./context";
 import { pullModel } from "./install/ollama";
@@ -40,10 +40,11 @@ export class ModelManager {
       };
     };
     const other = db
-      .query<{ n: number }, [string, string]>(
-        `SELECT COUNT(*) n FROM enrichments e JOIN documents d ON d.id = e.doc_id WHERE e.is_current = 1 AND NOT (e.provider = ? AND e.model = ?)`,
+      .query<{ n: number }, [string, string, number]>(
+        `SELECT COUNT(*) n FROM enrichments e JOIN documents d ON d.id = e.doc_id
+         WHERE e.is_current = 1 AND NOT (e.provider = ? AND e.model = ? AND e.prompt_version = ?)`,
       )
-      .get(cfg.enrich.provider, cfg.enrich.model)!.n;
+      .get(cfg.enrich.provider, cfg.enrich.model, PROMPT_VERSION)!.n;
     return {
       enrich: slot("enrich"),
       embed: slot("embed"),

@@ -18,7 +18,7 @@ export const DOC_TYPES = [
 ] as const;
 
 export const EnrichmentSchema = z.object({
-  summary: z.string().describe("Two to three sentences: what the document is, what it decides or proposes, and who it is for."),
+  summary: z.string().describe("One or two short sentences, 40 words at most: what the document is and what it decides or proposes."),
   doc_type: z.enum(DOC_TYPES),
   written_at: z
     .string()
