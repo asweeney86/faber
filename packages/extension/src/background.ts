@@ -11,6 +11,8 @@ import {
   navigate,
   nextDueIn,
   noteCalendarNav,
+  noteSent,
+  resendForTitle,
   setForeground,
   takeDue,
   type DwellState,
@@ -390,11 +392,53 @@ async function captureDue(tabId: number, url: string, meta: PendingMeta) {
       await updateDwell((s) => forgetRecent(s, key));
       return;
     }
+    await updateDwell((s) => noteSent(s, tabId, key, { ts: req.ts!, title: req.title ?? "", generic: rule.extractor === "generic", at: Date.now() }));
     await captureOrQueue(req, tabId);
   } catch (err) {
     await updateDwell((s) => forgetRecent(s, key));
     console.warn("[faber] capture failed", err);
   }
+}
+
+/**
+ * A captured page's title changed (its real title arrived, or a Google Doc was renamed):
+ * send the same visit again with the new title, so the bookmark isn't left with the old one.
+ */
+async function onTitleChange(tabId: number) {
+  let tab: chrome.tabs.Tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch {
+    return; // tab closed
+  }
+  if (tab.incognito || !tab.url) return;
+  const key = captureKey(tab.url);
+  const title = cleanGoogleTitle(tab.title);
+  const resend = await updateDwell((s) => {
+    const r = resendForTitle(s, tabId, key, title, Date.now());
+    return { state: r.state, result: r.resend };
+  });
+  if (!resend) return;
+  try {
+    const req = await buildCapture(tab, tab.url, resend, resend.generic);
+    if (req) await captureOrQueue({ ...req, ts: resend.ts }, tabId);
+  } catch (err) {
+    console.warn("[faber] title update failed", err);
+  }
+}
+
+/** Titles often change several times in a row while a page settles; act on the last one. */
+const TITLE_SETTLE_MS = 2000;
+const titleTimers = new Map<number, ReturnType<typeof setTimeout>>();
+function scheduleTitleCheck(tabId: number) {
+  clearTimeout(titleTimers.get(tabId));
+  titleTimers.set(
+    tabId,
+    setTimeout(() => {
+      titleTimers.delete(tabId);
+      void onTitleChange(tabId);
+    }, TITLE_SETTLE_MS),
+  );
 }
 
 async function onNavigation(tab: chrome.tabs.Tab, url: string | undefined) {
@@ -431,6 +475,7 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
     // Chrome resets per-tab icons on navigation; re-apply once the page settles.
     if (tab.active || change.status === "complete") void refreshTabStatus(tabId);
   }
+  if (change.title !== undefined) scheduleTitleCheck(tabId);
 });
 chrome.tabs.onRemoved.addListener((tabId) => void updateDwell((s) => leave(s, tabId)));
 

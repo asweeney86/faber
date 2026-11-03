@@ -326,6 +326,43 @@ test("a custom watch rule captures a page with its text", async ({ context, extI
   }
 });
 
+test("a page whose title changes after it's captured updates the bookmark", async ({ context, extId }) => {
+  const { server, base: site } = await startSite();
+  try {
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${extId}/options.html`);
+    await expect(options.getByText(/Connected · v/)).toBeVisible();
+    await options.getByRole("textbox", { name: "Label" }).fill("Local wiki");
+    await options.getByRole("textbox", { name: "Site pattern" }).fill("127.0.0.1");
+    await options.getByRole("button", { name: "Add" }).click();
+    await expect(options.getByText("Local wiki")).toBeVisible();
+
+    // A slow page: still showing a placeholder title when the capture happens.
+    const pageUrl = `${site}/slow-title`;
+    const page = await context.newPage();
+    await page.goto(pageUrl);
+    await page.evaluate(() => (document.title = "Updating..."));
+    const doc = await waitForDoc(pageUrl, (d) => d.has_content);
+    expect(doc.title).not.toContain("Updating");
+
+    // Its real title arrives.
+    await page.evaluate(() => (document.title = "Quokka launch plan"));
+    await expect.poll(async () => (await waitForDoc(pageUrl)).title, { timeout: 15_000 }).toBe("Quokka launch plan");
+
+    // Renamed later, like a Google Doc: same URL, new title.
+    await page.evaluate(() => (document.title = "Quokka launch plan v2"));
+    await expect.poll(async () => (await waitForDoc(pageUrl)).title, { timeout: 15_000 }).toBe("Quokka launch plan v2");
+    // Still one visit, and the new name is searchable.
+    expect(((await waitForDoc(pageUrl)) as unknown as { visit_count: number }).visit_count).toBe(1);
+    await expect
+      .poll(async () => (await api<{ hits: { doc: { id: string } }[] }>(`/api/search?q=${encodeURIComponent("launch plan v2")}&mode=keyword`)).hits.map((h) => h.doc.id))
+      .toContain(doc.id);
+  } finally {
+    server.close();
+    await setWatchlist((rules) => rules.filter((r) => r.builtin));
+  }
+});
+
 test("captures made while the daemon is down are queued and flushed later", async ({ context, sw }) => {
   const { server, base: site } = await startSite();
   try {

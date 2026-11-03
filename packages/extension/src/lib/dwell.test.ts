@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   RECENT_WINDOW_MS,
+  REREAD_TEXT_MS,
   claimRecent,
   elapsedMs,
   emptyDwell,
@@ -9,6 +10,8 @@ import {
   navigate,
   nextDueIn,
   noteCalendarNav,
+  noteSent,
+  resendForTitle,
   setForeground,
   takeDue,
   type DwellState,
@@ -134,5 +137,43 @@ describe("calendar navigation", () => {
     expect(s.calendarNav[7]).toBe(123);
     s = leave(s, 7);
     expect(s.calendarNav[7]).toBeUndefined();
+  });
+});
+
+describe("title corrections after a capture", () => {
+  const captured = () => {
+    let s = navigate(setForeground(emptyDwell(), 1, 0), 1, A, A, 0, { referrer: "https://chat.example.com/x" });
+    s = takeDue(s, DWELL, DWELL).state;
+    return persist(noteSent(s, 1, A, { ts: 1000, title: "Updating…", generic: true, at: DWELL }));
+  };
+
+  test("a new title on the same page re-sends the same visit with its metadata", () => {
+    const { state, resend } = resendForTitle(captured(), 1, A, "Quarterly plan", DWELL + 2000);
+    expect(resend).toEqual({ url: A, ts: 1000, generic: true, referrer: "https://chat.example.com/x", meeting: undefined });
+    // The same title again is nothing new.
+    expect(resendForTitle(persist(state), 1, A, "Quarterly plan", DWELL + 3000).resend).toBeNull();
+  });
+
+  test("nothing to re-send for an empty title, another page, or a tab that wasn't captured", () => {
+    const s = captured();
+    expect(resendForTitle(s, 1, A, "", DWELL + 1).resend).toBeNull();
+    expect(resendForTitle(s, 1, B, "Other", DWELL + 1).resend).toBeNull();
+    expect(resendForTitle(s, 2, A, "Other", DWELL + 1).resend).toBeNull();
+    const notSent = navigate(emptyDwell(), 1, A, A, 0);
+    expect(resendForTitle(notSent, 1, A, "Title", 1).resend).toBeNull();
+  });
+
+  test("a later rename (a Google Doc's new name) still updates the title, without re-reading the text", () => {
+    const later = DWELL + REREAD_TEXT_MS + 60_000;
+    const { state, resend } = resendForTitle(captured(), 1, A, "Quarterly plan v2", later);
+    expect(resend).toMatchObject({ url: A, ts: 1000, generic: false });
+    // And again after another rename: every change on the same page counts.
+    expect(resendForTitle(persist(state), 1, A, "Quarterly plan v3", later + 1).resend).toMatchObject({ ts: 1000 });
+  });
+
+  test("moving to another page forgets the capture", () => {
+    const s = navigate(captured(), 1, B, B, DWELL + 1);
+    expect(resendForTitle(s, 1, B, "B title", DWELL + 2).resend).toBeNull();
+    expect(resendForTitle(leave(captured(), 1), 1, A, "x", DWELL + 2).resend).toBeNull();
   });
 });

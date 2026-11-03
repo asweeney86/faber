@@ -42,9 +42,16 @@ export function enqueueCapture(
 ): QueuedCapture[] {
   const lim = { ...QUEUE_LIMITS, ...opts.limits };
   const ts = req.ts ?? opts.now ?? Date.now();
-  if (queue.some((q) => q.req.url === req.url && q.req.ts === ts)) return [...queue];
   const capped: CaptureRequest = { ...req, ts };
   if (capped.content !== undefined && capped.content.length > lim.maxItemChars) capped.content = capped.content.slice(0, lim.maxItemChars);
+  // The same visit again (re-sent because the page's title changed): the newer copy replaces it,
+  // keeping its place in the queue.
+  const same = queue.findIndex((q) => q.req.url === req.url && q.req.ts === ts);
+  if (same >= 0) {
+    const prev = queue[same]!;
+    const merged: CaptureRequest = { ...prev.req, ...capped, content: capped.content ?? prev.req.content };
+    return shrinkToFit(queue.map((q, i) => (i === same ? { ...q, req: merged } : q)), lim.maxTotalBytes);
+  }
 
   let next = [...queue, { id: opts.id ?? crypto.randomUUID(), req: capped, attempts: 0 }];
   if (next.length > lim.maxItems) next = next.slice(next.length - lim.maxItems);

@@ -20,6 +20,18 @@ describe("enqueueCapture", () => {
     expect(enqueueCapture(q, req("https://a", 2))).toHaveLength(2);
   });
 
+  test("the same visit sent again replaces the queued copy: new title, text kept unless re-read", () => {
+    let q = enqueueCapture([], { ...req("https://a", 1, "Loading the page"), title: "Updating…" }, { id: "first" });
+    q = enqueueCapture(q, req("https://b", 2));
+    q = enqueueCapture(q, { ...req("https://a", 1, "The real article"), title: "Real title" });
+    expect(q.map((c) => c.id)).toEqual(["first", expect.any(String)]);
+    expect(q[0]!.req).toMatchObject({ title: "Real title", content: "The real article" });
+    // A later title-only re-send (a rename) keeps the text already queued.
+    q = enqueueCapture(q, { url: "https://a", ts: 1, title: "Renamed" });
+    expect(q[0]!.req).toMatchObject({ title: "Renamed", content: "The real article" });
+    expect(q).toHaveLength(2);
+  });
+
   test("drops the oldest beyond the item cap", () => {
     let q: QueuedCapture[] = [];
     for (let i = 0; i < 5; i++) q = enqueueCapture(q, req(`https://${i}`, i), { limits: { maxItems: 3 } });

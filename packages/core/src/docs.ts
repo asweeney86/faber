@@ -144,6 +144,11 @@ export function recordVisit(db: Database, v: VisitInput): { row: DocRow; created
          WHERE id = ?`,
         [ts, ts, title, ts, title, now(), row.id],
       );
+    } else if (title) {
+      // The same visit sent again: the extension re-sends it when the page's title changes
+      // (a slow page's real title arrives, a Google Doc is renamed). Correct the title
+      // without counting another visit, unless a later visit has already set it.
+      db.run(`UPDATE documents SET title = ?, updated_at = ? WHERE id = ? AND title != ? AND ? >= last_seen_at`, [title, now(), row.id, title, ts]);
     }
     const fresh = getDocRow(db, row.id)!;
     if (fresh.title !== row.title) refreshFts(db, row.id);

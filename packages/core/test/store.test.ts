@@ -468,13 +468,34 @@ describe("placeholder titles", () => {
     const url = gdocUrl(77);
     const t0 = Date.now() - 10_000;
     recordVisit(db, { url, title: "Usage-Based Pricing: Rate Limit Design - Google Docs", ts: t0 });
-    for (const [i, junk] of ["Page Not Found", "Sign in - Google Accounts", "Google Docs", "Loading…", "Access denied", "Error 404 (Not Found)!!1"].entries()) {
+    for (const [i, junk] of ["Page Not Found", "Sign in - Google Accounts", "Google Docs", "Loading…", "Updating...", "Access denied", "Error 404 (Not Found)!!1"].entries()) {
       recordVisit(db, { url, title: junk, ts: t0 + 1000 * (i + 1) });
     }
     expect(lookupByUrl(db, url)!.title).toBe("Usage-Based Pricing: Rate Limit Design");
     // A real rename still wins.
     recordVisit(db, { url, title: "Rate Limits v2 - Google Docs", ts: t0 + 9000 });
     expect(lookupByUrl(db, url)!.title).toBe("Rate Limits v2");
+  });
+
+  test("the same visit sent again with a new title updates the title without counting a visit", () => {
+    const db = openDatabase(":memory:");
+    const url = gdocUrl(78);
+    const ts = Date.now() - 5000;
+    recordVisit(db, { url, title: "Updating...", ts });
+    expect(lookupByUrl(db, url)!.title).toBe("");
+    recordVisit(db, { url, title: "Roadmap - Google Docs", ts });
+    expect(lookupByUrl(db, url)!.title).toBe("Roadmap");
+    // Renamed later in the same tab: still the same visit.
+    recordVisit(db, { url, title: "Roadmap 2027 - Google Docs", ts });
+    const row = lookupByUrl(db, url)!;
+    expect(row.title).toBe("Roadmap 2027");
+    expect(row.visit_count).toBe(1);
+    // A search finds it by its new name.
+    expect(db.query(`SELECT COUNT(*) n FROM docs_fts WHERE docs_fts MATCH '"2027"'`).get()).toEqual({ n: 1 });
+    // A re-send of an older visit doesn't undo a newer visit's title.
+    recordVisit(db, { url, title: "Roadmap final", ts: ts + 1000 });
+    recordVisit(db, { url, title: "Roadmap old name", ts });
+    expect(lookupByUrl(db, url)!.title).toBe("Roadmap final");
   });
 });
 
