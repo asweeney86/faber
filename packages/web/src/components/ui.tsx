@@ -161,8 +161,25 @@ export function useNow(intervalMs = 30_000) {
   return now;
 }
 
-export function DocMeta({ doc, now }: { doc: Doc; now?: number }) {
+export function DocMeta({ doc, now, inline }: { doc: Doc; now?: number; inline?: boolean }) {
   const written = formatWritten(doc.enrichment?.written_at);
+  if (inline) {
+    // One line, for dense lists: type · written · last opened · opens.
+    return (
+      <div className="doc-meta doc-meta-inline">
+        {doc.enrichment ? <TypeBadge type={doc.enrichment.doc_type} /> : <ContentState doc={doc} compact />}
+        {written && (
+          <span className="doc-meta-written" title="Estimated date written">
+            {written}
+          </span>
+        )}
+        <span title={`Last opened ${new Date(doc.last_seen_at).toLocaleString()}`}>{relativeTime(doc.last_seen_at, now)}</span>
+        <span className="doc-meta-count" title={`Opened ${doc.visit_count} ${doc.visit_count === 1 ? "time" : "times"}`}>
+          {doc.visit_count}×
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="doc-meta">
       {doc.enrichment ? <TypeBadge type={doc.enrichment.doc_type} /> : <ContentState doc={doc} compact />}
