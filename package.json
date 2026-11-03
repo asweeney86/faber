@@ -24,6 +24,7 @@
     "typecheck": "tsc -b packages/shared packages/core packages/daemon && tsc -p packages/ui && tsc -p packages/web --noEmit && tsc -p packages/extension --noEmit && tsc -p scripts && tsc -p packages/macos",
     "test": "bun test packages scripts",
     "test:e2e": "playwright test",
+    "release": "bun scripts/cut-release.ts",
     "build:extension": "bun run --cwd packages/extension build",
     "dev:extension": "bun run --cwd packages/extension dev",
     "brand": "bun scripts/brand.ts",
@@ -31,6 +32,7 @@
     "test:macos": "FABER_MACOS_UI=1 bun test packages/macos"
   },
   "devDependencies": {
+    "@clack/prompts": "^1.8.1",
     "@playwright/test": "1.56.1",
     "@types/bun": "^1.2.0",
     "typescript": "^5.6.0"

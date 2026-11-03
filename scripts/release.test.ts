@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { cpSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkVersions, renderFormula, setVersion, versionsIn } from "./release-lib";
+import { checkVersions, nextVersion, releaseNotes, renderFormula, setVersion, versionsIn } from "./release-lib";
 
 const root = join(import.meta.dir, "..");
 
@@ -52,4 +52,18 @@ describe("Homebrew formula", () => {
     if (ruby.exitCode === null) return; // no ruby here
     expect(ruby.stdout.toString()).toContain("Syntax OK");
   });
+});
+
+test("nextVersion bumps patch, minor and major, and refuses anything not newer", () => {
+  expect(nextVersion("0.1.3", "patch")).toBe("0.1.4");
+  expect(nextVersion("0.1.3", "minor")).toBe("0.2.0");
+  expect(nextVersion("0.1.3", "major")).toBe("1.0.0");
+  expect(nextVersion("0.1.3", "v0.3.0")).toBe("0.3.0");
+  expect(() => nextVersion("0.1.3", "0.1.3")).toThrow("isn't newer");
+  expect(() => nextVersion("0.1.3", "0.0.9")).toThrow("isn't newer");
+  expect(() => nextVersion("0.1.3", "0.2")).toThrow("isn't patch");
+});
+
+test("releaseNotes turns merged PR titles into bullets", () => {
+  expect(releaseNotes(["Make search fast (#10)", "Release 0.1.3", "Fix the queue", ""])).toEqual(["- Make search fast", "- Fix the queue"]);
 });
