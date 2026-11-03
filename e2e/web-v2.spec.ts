@@ -380,9 +380,12 @@ test.describe("appearance", () => {
   });
 
   test("a failed save shows the error and rolls the preview back", async ({ page }) => {
+    // Start from a known saved choice, and wait until it's on screen: a fresh page first paints
+    // the built-in default, and reading the theme before settings arrive made this flaky in CI.
+    await page.request.put("/api/settings", { data: { appearance: { ...SYSTEM, theme: "latte" } } });
     await page.goto("/#/settings/appearance");
-    const before = await page.locator("html").getAttribute("data-flavor");
-    expect(before).not.toBe("frappe");
+    await expect(page.locator("html")).toHaveAttribute("data-flavor", "latte");
+    await expect(page.getByTestId("theme-latte")).toHaveAttribute("aria-checked", "true");
     let release: () => void = () => {};
     const held = new Promise<void>((r) => (release = r));
     await page.route("**/api/settings", async (r) => {
@@ -394,7 +397,7 @@ test.describe("appearance", () => {
     await expect(page.locator("html")).toHaveAttribute("data-flavor", "frappe"); // instant preview
     release();
     await expect(page.getByText("disk full")).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-flavor", before!); // back to what was saved
+    await expect(page.locator("html")).toHaveAttribute("data-flavor", "latte"); // back to what was saved
   });
 });
 
