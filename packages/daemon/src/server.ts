@@ -9,6 +9,7 @@ import {
   deleteCollection,
   deleteDoc,
   enqueueEnrichment,
+  recordOpen,
   PROMPT_VERSION,
   exportCollection,
   getCollection,
@@ -505,17 +506,25 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
       return { ok: true };
     }),
 
+    /** The user opened this doc from Faber: counts toward how often it's used. */
+    route("POST", "/api/docs/:id/open", (_req, p) => {
+      if (!recordOpen(db, p.id!)) throw new HttpError(404, "document not found");
+      return { ok: true };
+    }),
+
     route("GET", "/api/docs/:id/related", (_req, p) => relatedDocs(db, ctx.index, requireDoc(p.id!))),
 
     route("POST", "/api/search", async (req) => {
       const b = await body<SearchRequest>(req);
       if (typeof b.q !== "string") throw new HttpError(400, "q must be a string");
       if (b.mode !== undefined && !["hybrid", "keyword", "semantic"].includes(b.mode)) throw new HttpError(400, "invalid mode");
+      if (b.sort !== undefined && b.sort !== "frequent" && b.sort !== "recent") throw new HttpError(400, 'sort must be "frequent" or "recent"');
       return search(ctx.searchDeps, {
         q: b.q.slice(0, 500),
         filters: validateFilters(b.filters),
         limit: clampLimit(b.limit, 20, 200),
         mode: b.mode,
+        sort: b.sort,
       });
     }),
     route("GET", "/api/search", (_req, _p, url) =>

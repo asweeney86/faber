@@ -1,6 +1,7 @@
 export * from "./config";
 export * from "./db";
 export * from "./docs";
+export * from "./frecency";
 export * from "./providers";
 export * from "./enrich/schema";
 export * from "./enrich/queue";

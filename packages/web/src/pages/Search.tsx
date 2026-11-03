@@ -8,6 +8,8 @@ import {
   filtersFromState,
   isTypingTarget,
   navigate,
+  noteOpened,
+  openLinkProps,
   plural,
   searchStateFromQuery,
   searchStateToHash,
@@ -51,7 +53,7 @@ export function SearchPage({ route }: { route: Route }) {
   const update = (patch: Partial<SearchState>) => navigate(searchStateToHash({ ...state, q: input, ...patch }), { replace: true });
 
   const key = searchStateToHash(state);
-  const results = useAsync(() => api.search({ q: state.q, filters: filtersFromState(state), limit: 50 }), [key]);
+  const results = useAsync(() => api.search({ q: state.q, filters: filtersFromState(state), limit: 50, sort: state.sort }), [key]);
   const [saving, setSaving] = useState(false);
   // Project filters hold ids; show their names.
   const projectList = useAsync(() => api.projects(), []);
@@ -91,6 +93,7 @@ export function SearchPage({ route }: { route: Route }) {
         const h = hits[sel];
         if (h) {
           e.preventDefault();
+          noteOpened(h.doc.id);
           window.open(h.doc.canonical_url, "_blank", "noopener");
         }
       } else if ((e.key === " " && !inSearchBox) || (e.key === "ArrowRight" && (!inSearchBox || caretAtEnd(inputRef.current)))) {
@@ -190,9 +193,23 @@ export function SearchPage({ route }: { route: Route }) {
           {results.data && (hits.length > 0 || state.q || anyFilter) && !(firstRun && !state.q && !anyFilter) && (
             <div className="results-meta" data-testid="results-meta">
               <span>
-                {state.q ? plural(hits.length, "result") : anyFilter ? plural(hits.length, "doc") : "Recently opened"}
+                {state.q ? plural(hits.length, "result") : anyFilter ? plural(hits.length, "doc") : state.sort === "recent" ? "Recently opened" : "Most used"}
                 {state.q && <span className="muted"> · {results.data.took_ms}ms</span>}
               </span>
+              {!state.q && (
+                <div className="segmented segmented-sm" role="group" aria-label="Sort">
+                  {(
+                    [
+                      ["frequent", "Frequent", "How often and how recently you open them"],
+                      ["recent", "Recent", "Last opened first"],
+                    ] as const
+                  ).map(([id, label, hint]) => (
+                    <button key={id} className={state.sort === id ? "is-on" : ""} aria-pressed={state.sort === id} title={hint} onClick={() => update({ sort: id })} data-testid={`sort-${id}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {state.q && !results.data.semantic && (
                 <span className="warn-text" data-testid="semantic-off" title="Is Ollama running? Semantic search needs the embedding model.">
                   Keyword only — semantic search unavailable
@@ -310,7 +327,7 @@ function ResultCard({ hit, index, selected, onSelect, onFacet }: { hit: SearchHi
     >
       <header className="result-head">
         <DocIcon doc={doc} size={16} />
-        <a className="result-title" href={doc.canonical_url} target="_blank" rel="noreferrer" data-testid="result-title" title="Open document">
+        <a className="result-title" {...openLinkProps(doc)} data-testid="result-title" title="Open document">
           <span className="result-title-text">{docTitle(doc)}</span>
           <IconExternal size={12} className="result-ext" />
         </a>

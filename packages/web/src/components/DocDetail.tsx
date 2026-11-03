@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DocDetail as DocDetailT } from "@faber/shared";
-import { api, docTitle, emitChange, formatWritten, fullDate, hostOf, navigate, plural, relativeTime, toError, useAsync } from "../lib";
+import { api, docTitle, emitChange, formatWritten, fullDate, hostOf, navigate, openLinkProps, plural, relativeTime, toError, useAsync } from "../lib";
 import { IconCalendar, IconExternal, IconPin, IconPlus, IconPushpin, IconRefresh, IconTrash, IconX } from "./icons";
 import { ContentState, DocIcon, ErrorBanner, LoadError, Spinner, TypeBadge, useDrawer } from "./ui";
 
@@ -52,7 +52,7 @@ function DocDetailBody({ doc, onForget }: { doc: DocDetailT; onForget?: () => vo
           </h2>
         </div>
         <div className="detail-actions">
-          <a className="btn btn-primary btn-sm" href={doc.canonical_url} target="_blank" rel="noreferrer" data-testid="detail-open">
+          <a className="btn btn-primary btn-sm" {...openLinkProps(doc)} data-testid="detail-open">
             Open <IconExternal size={13} />
           </a>
           <button

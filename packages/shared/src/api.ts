@@ -175,7 +175,15 @@ export interface SearchRequest {
   limit?: number;
   /** Debug: which signals to use. Default both. */
   mode?: "hybrid" | "keyword" | "semantic";
+  /**
+   * Order when there's no query: "frequent" (default) by how often and recently you've used
+   * each doc, "recent" by when you last opened it. Pinned docs come first either way.
+   * Queries are ranked by relevance, with frequent use as a tie-breaker.
+   */
+  sort?: SearchSort;
 }
+
+export type SearchSort = "frequent" | "recent";
 
 export interface SearchHit {
   doc: Doc;
@@ -183,7 +191,7 @@ export interface SearchHit {
   /** Snippet from FTS with matches wrapped in [brackets], when available. */
   snippet: string | null;
   /** Which signals contributed, for the UI and debugging. */
-  signals: { keyword?: number; semantic?: number; recency?: number; popularity?: number };
+  signals: { keyword?: number; semantic?: number; recency?: number; popularity?: number; frecency?: number };
 }
 
 export interface SearchResponse {

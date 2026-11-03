@@ -82,6 +82,8 @@ interface Item {
   subtitle?: string;
   icon: ReactNode;
   url?: string;
+  /** The document it opens, so opening it counts toward how often it's used. */
+  docId?: string;
   /** App route for "Open in Faber". */
   route?: string;
   /** Enter browses into it instead of opening. */
@@ -127,6 +129,7 @@ const docItem = (d: Doc, project?: string): Item => ({
   subtitle: docSubtitle(d, project),
   icon: <SourceIcon source={d.source} size={20} />,
   url: d.canonical_url,
+  docId: d.id,
   route: `/doc/${d.id}`,
 });
 
@@ -331,7 +334,10 @@ export function Launcher({ host, initialQuery = "", initialMode = "search" }: { 
       setQuery("");
       return;
     }
-    if (item.url && isOpenableUrl(item.url)) host.openUrl(item.url, { newTab });
+    if (item.url && isOpenableUrl(item.url)) {
+      if (item.docId) void host.client.opened(item.docId).catch(() => {});
+      host.openUrl(item.url, { newTab });
+    }
     else if (item.route) host.openApp(item.route, { newTab });
   };
 
