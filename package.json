@@ -1,7 +1,7 @@
 {
   "name": "faber",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local-first, AI-enriched bookmarks for the docs you actually open at work.",
   "license": "Apache-2.0",
   "author": "Andrew Sweeney",
