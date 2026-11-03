@@ -332,8 +332,8 @@ function ResultCard({ hit, index, selected, onSelect, onFacet }: { hit: SearchHi
           <IconExternal size={12} className="result-ext" />
         </a>
         {doc.pinned && <IconPin size={13} filled className="pin-mark" />}
+        <DocMeta doc={doc} now={now} inline />
       </header>
-      <DocMeta doc={doc} now={now} />
       {e?.summary && (
         <p className="result-summary" title={e.summary}>
           {e.summary}
@@ -343,17 +343,17 @@ function ResultCard({ hit, index, selected, onSelect, onFacet }: { hit: SearchHi
       {doc.note && <p className="result-note">“{doc.note}”</p>}
       {(e?.people.length || doc.project_refs?.length || doc.tags.length) ? (
         <div className="result-chips">
-          {(doc.project_refs ?? []).slice(0, 3).map((p) => (
+          {(doc.project_refs ?? []).slice(0, 2).map((p) => (
             <button key={`p:${p.id}`} className="chip chip-project" onClick={() => onFacet("projects", p.id)}>
               {p.name}
             </button>
           ))}
-          {e?.people.slice(0, 4).map((p) => (
+          {e?.people.slice(0, 3).map((p) => (
             <button key={`u:${p}`} className="chip chip-person" onClick={() => onFacet("people", p)}>
               {p}
             </button>
           ))}
-          {doc.tags.slice(0, 6).map((t) => (
+          {doc.tags.slice(0, 5).map((t) => (
             <button key={`t:${t.tag}`} className={`tag tag-${t.source}`} onClick={() => onFacet("tags", t.tag)}>
               #{t.tag}
             </button>
