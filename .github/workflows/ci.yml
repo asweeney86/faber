@@ -6,9 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A newer push to a pull request replaces its older run. On main, every commit gets a full
+# run: the release script needs CI to have passed on the exact commit it releases. Pull
+# requests are grouped by branch name, not ref: a PR run that starts after the merge has
+# no merge ref left, and grouping by ref would put it in main's group and cancel main's run.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
