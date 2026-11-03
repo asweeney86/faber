@@ -24,6 +24,14 @@ const MIN_CANDIDATES = 60;
 const MIN_SEMANTIC = 0.4;
 /** Semantic matches must also be within this distance of the best one. */
 const SEMANTIC_BAND = 0.15;
+/**
+ * Weight of the semantic list in the fusion (keyword is 1). Semantic finds paraphrases,
+ * but its near-misses used to push an exact keyword match off the top: at 0.5 the right
+ * page comes first for 84% of benchmark queries, against 74% at 1 (scripts/bench/rank-lab.ts).
+ */
+const SEMANTIC_WEIGHT = 0.5;
+/** Extra boost by the share of query words that start a word of the title. */
+const TITLE_COVERAGE = 0.3;
 
 /** Turn free text into an FTS5 query: each term quoted (so punctuation is safe), prefix-matched, OR-joined. */
 export function toFtsQuery(q: string): string {
@@ -101,10 +109,11 @@ function keywordSearch(db: Database, q: string, filters: SearchFilters | undefin
   const fts = toFtsQuery(q);
   if (!fts) return [];
   const { where, params } = filterSql(db, filters);
-  // Column weights: doc_id(0) title summary note tags people projects content
+  // Column weights: doc_id(0) title summary note tags people projects content.
+  // Content is long, but it's where a remembered detail lives, so it counts for more than 1.
   return db
     .query<FtsRow, Param[]>(
-      `SELECT d.id AS doc_id, bm25(docs_fts, 0, 12, 6, 8, 6, 6, 6, 1) AS rank
+      `SELECT d.id AS doc_id, bm25(docs_fts, 0, 12, 6, 8, 6, 6, 6, 3) AS rank
        FROM docs_fts JOIN documents d ON d.fts_rowid = docs_fts.rowid
        LEFT JOIN enrichments e ON e.doc_id = d.id AND e.is_current = 1
        WHERE docs_fts MATCH ? AND ${where} ORDER BY rank LIMIT ?`,
@@ -178,6 +187,8 @@ export async function embedQuery(embedder: Embedder, q: string): Promise<Float32
   return v;
 }
 
+const words = (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+
 export interface SearchDeps {
   db: Database;
   index: VectorIndex;
@@ -238,25 +249,29 @@ export async function search(deps: SearchDeps, req: SearchRequest, opts: { snipp
   });
   semantic.forEach((r, i) => {
     const f = bump(r.doc_id);
-    f.rrf += 1 / (RRF_K + i);
+    f.rrf += SEMANTIC_WEIGHT / (RRF_K + i);
     f.semantic = r.score;
   });
 
   const docs = getDocs(db, [...fused.keys()]);
   const nowMs = Date.now();
   const used = frecencies(db, [...fused.keys()], nowMs);
+  const queryWords = words(q).filter((w) => w.length > 2 && !STOPWORDS.has(w));
   const hits: SearchHit[] = [];
   for (const [id, f] of fused) {
     const doc = docs.get(id);
     if (!doc) continue;
-    // Boosts: things you open often and recently are more likely what you mean.
-    // Frecency ~100 per use this week; log-scaled so a heavy favourite helps without swamping relevance.
+    // Boosts: things you open often and recently are more likely what you mean, and a title
+    // that contains the query words usually is the page. Frecency ~100 per use this week,
+    // log-scaled; kept modest so a favourite breaks near-ties without outranking a better match.
     const ageDays = Math.max(0, (nowMs - doc.last_seen_at) / 86_400_000);
     const recency = 1 / (1 + ageDays / 90);
     const popularity = Math.log1p(doc.visit_count) / 5;
     const frecency = used.get(id) ?? 0;
     const habit = Math.min(1, Math.log1p(frecency) / Math.log1p(2000));
-    const score = f.rrf * (1 + 0.1 * recency + 0.05 * popularity + 0.3 * habit + (doc.pinned ? 0.1 : 0));
+    const titleWords = words(doc.title);
+    const coverage = queryWords.length ? queryWords.filter((w) => titleWords.some((t) => t.startsWith(w))).length / queryWords.length : 0;
+    const score = f.rrf * (1 + 0.05 * recency + 0.05 * popularity + 0.15 * habit + (doc.pinned ? 0.1 : 0) + TITLE_COVERAGE * coverage);
     hits.push({
       doc,
       score,
