@@ -110,3 +110,26 @@ ${platforms.join("\n\n")}
 end
 `;
 }
+
+/** The version after `current`: "patch", "minor", "major", or an explicit x.y.z (which must be newer). */
+export function nextVersion(current: string, bump: string): string {
+  if (!SEMVER.test(current)) throw new Error(`"${current}" isn't a version like 1.2.3`);
+  const [maj, min, pat] = current.split(".").map(Number) as [number, number, number];
+  let next: string;
+  if (bump === "patch") next = `${maj}.${min}.${pat + 1}`;
+  else if (bump === "minor") next = `${maj}.${min + 1}.0`;
+  else if (bump === "major") next = `${maj + 1}.0.0`;
+  else next = bump.replace(/^v/, "");
+  if (!SEMVER.test(next)) throw new Error(`"${bump}" isn't patch, minor, major or a version like 1.2.3`);
+  const cmp = next.split(".").map(Number).reduce((acc, n, i) => acc || n - [maj, min, pat][i]!, 0);
+  if (cmp <= 0) throw new Error(`${next} isn't newer than ${current}`);
+  return next;
+}
+
+/** Release notes from the commit subjects since the last release: one bullet each, PR numbers and earlier "Release" commits dropped. */
+export function releaseNotes(subjects: string[]): string[] {
+  return subjects
+    .map((s) => s.trim().replace(/\s*\(#\d+\)$/, ""))
+    .filter((s) => s && !/^Release \d+\.\d+\.\d+$/.test(s))
+    .map((s) => `- ${s}`);
+}

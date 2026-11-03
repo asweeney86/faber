@@ -42,10 +42,17 @@ People upgrade with `brew upgrade faber`, and nobody reads release notes first. 
 ## Releasing
 
 ```bash
-bun scripts/version.ts 0.2.0     # every package.json + packages/daemon/src/version.ts
-bun scripts/fixture.ts           # snapshot this version's database for future upgrade tests
-git commit -am "Release 0.2.0" && git tag v0.2.0 && git push --follow-tags
+make release-dry-run             # what the next release would contain; changes nothing
+make release                     # next patch version; or BUMP=minor, BUMP=major, BUMP=0.2.0
 ```
+
+`scripts/cut-release.ts` checks that you're on a clean, up-to-date `main` whose CI passed, then:
+
+1. Sets the version everywhere (`scripts/version.ts`).
+2. Snapshots this version's database for future upgrade tests (`scripts/fixture.ts`).
+3. Runs the type check and the tests. If anything fails, the bump is undone.
+4. Commits `Release x.y.z` with the merged PR titles since the last release as notes.
+5. Tags `vx.y.z`, pushes, and waits for the release workflow to finish.
 
 `.github/workflows/release.yml` then does the rest:
 
