@@ -274,6 +274,9 @@ describe("enrichment queue", () => {
     const a = recordVisit(db, { url: gdocUrl(13) }).row;
     enqueueEnrichment(db, a.id);
     expect(claimJobs(db, 5)).toEqual([]);
+    // Nothing to summarise yet, so it isn't queued (and never shows as pending); the text queues it.
+    expect(getDoc(db, a.id)!.queue_status).toBeNull();
+    expect(stats(db).queue.pending).toBe(0);
     setContent(db, a.id, "x");
     expect(claimJobs(db, 5).length).toBe(1);
     expect(claimJobs(db, 5)).toEqual([]);
@@ -286,6 +289,19 @@ describe("enrichment queue", () => {
     expect(claimJobs(db, 5)).toEqual([]); // backing off
     expect(claimJobs(db, 5, Date.now() + 61_000).length).toBe(1);
   });
+});
+
+test("reopening clears jobs stuck waiting for text that older versions queued", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "faber-")), "lib.sqlite");
+  const db = openDatabase(path);
+  const a = recordVisit(db, { url: gdocUrl(46) }).row;
+  db.run(`INSERT INTO enrich_queue (doc_id, priority, status, updated_at) VALUES (?, 1, 'pending', 0)`, [a.id]);
+  expect(stats(db).queue.pending).toBe(1);
+  db.close();
+  const again = openDatabase(path);
+  expect(stats(again).queue.pending).toBe(0);
+  expect(getDoc(again, a.id)!.queue_status).toBeNull();
+  again.close();
 });
 
 describe("notes", () => {
