@@ -1243,6 +1243,11 @@ button.tag:hover {
   gap: 5px;
   margin: 10px 0 0 27px;
 }
+.segmented-sm button {
+  height: 20px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
 .favicon {
   display: inline-block;
   border-radius: 3px;

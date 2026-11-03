@@ -24,6 +24,26 @@ test.describe("search results", () => {
     expect(height).toBeLessThanOrEqual(Math.ceil(2 * line));
   });
 
+  test("browsing lists the most used first, and Recent switches to last opened", async ({ page }) => {
+    const sorts: (string | undefined)[] = [];
+    await page.route("**/api/search", async (r) => {
+      sorts.push((r.request().postDataJSON() as { sort?: string }).sort);
+      await r.fallback();
+    });
+    await page.goto("/#/search");
+    await expect(page.getByTestId("results-meta")).toContainText("Most used");
+    await expect(page.getByTestId("sort-frequent")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("sort-recent").click();
+    await expect(page).toHaveURL(/sort=recent/);
+    await expect(page.getByTestId("results-meta")).toContainText("Recently opened");
+    expect(sorts).toContain("frequent");
+    expect(sorts.at(-1)).toBe("recent");
+    // A query is ranked by relevance: no sort switch.
+    await page.getByTestId("search-input").fill("pricing");
+    await expect(page.getByTestId("results-meta")).toContainText(/result/);
+    await expect(page.getByTestId("sort-recent")).toHaveCount(0);
+  });
+
   test("web pages show their site's icon; docs and sites without one keep the built-in icon", async ({ page }) => {
     await page.route("**/api/search", async (r) => {
       const res = await r.fetch();

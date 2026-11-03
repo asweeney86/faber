@@ -153,6 +153,8 @@ export class PbClient {
   addTag = (id: string, tag: string) => this.req<Doc>("POST", `/api/docs/${id}/tags`, { tag });
   removeTag = (id: string, tag: string) => this.req<Doc>("DELETE", `/api/docs/${id}/tags`, { tag });
   reenrich = (id: string) => this.req<{ ok: true }>("POST", `/api/docs/${id}/enrich`);
+  /** Tell the daemon the user opened this doc from Faber (it ranks frequently used docs higher). */
+  opened = (id: string) => this.req<{ ok: true }>("POST", `/api/docs/${id}/open`);
   related = (id: string) => this.req<RelatedDoc[]>("GET", `/api/docs/${id}/related`);
 
   search = (r: SearchRequest) => this.req<SearchResponse>("POST", "/api/search", r);

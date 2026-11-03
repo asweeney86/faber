@@ -41,7 +41,7 @@ On a Mac, a tiny menu-bar app puts the same launcher a keystroke away from any a
 
 ### Search the way you remember
 
-Keyword search (SQLite FTS5) and semantic search (local embeddings) are fused into one ranking, boosted by how often and how recently you opened something. Filter by type, person, project, tag or time, and save any search as a view.
+Keyword search (SQLite FTS5) and semantic search (local embeddings) are fused into one ranking, boosted by how often and how recently you open something (opening it from Faber counts most). With no query, the list shows what you use most, or switch to most recent. Filter by type, person, project, tag or time, and save any search as a view.
 
 <img src="docs/screenshots/search.png" alt="Search results for a vague, descriptive query">
 
