@@ -105,6 +105,7 @@ import type {
 import { PAIRING_REQUIRED_MESSAGE } from "@faber/shared";
 import type { AppContext } from "./context";
 import { checkRequest, corsHeaders, effectiveMethod, extensionIdOf } from "./security";
+import { Favicons, type Fetcher } from "./favicons";
 import { ModelChangeError, ModelManager } from "./models";
 import indexPage from "../../web/index.html";
 import launcherPage from "../../web/launcher.html";
@@ -199,6 +200,8 @@ export interface ServerOptions {
   /** Start draining the enrichment queue in the background. Default true. */
   autoEnrich?: boolean;
   log?: (msg: string) => void;
+  /** How site icons are fetched (tests stub it). */
+  fetchFavicon?: Fetcher;
 }
 
 export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
@@ -301,6 +304,8 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
     if (!getDocRow(db, id)) throw new HttpError(404, "document not found");
     return id;
   };
+
+  const favicons = new Favicons(cfg.home, opts.fetchFavicon);
 
   const routes: Route[] = [
     route("GET", "/api/models", () => models.state()),
@@ -407,6 +412,24 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
       const row = lookupByUrl(db, u);
       if (!row) throw new HttpError(404, "document not found");
       return getDoc(db, row.id);
+    }),
+
+    // The site's own icon, for <img> tags. Only for documents in the library, so a page
+    // elsewhere can't make the daemon fetch arbitrary hosts.
+    route("GET", "/api/docs/:id/favicon", async (req, p) => {
+      if (req.headers.get("sec-fetch-site") === "cross-site") throw new HttpError(403, "cross-site");
+      const doc = getDocRow(db, p.id!);
+      if (!doc) throw new HttpError(404, "document not found");
+      const icon = cfg.privacy.favicons === false || doc.source !== "url" ? null : await favicons.get(doc.canonical_url);
+      if (!icon) return new Response(null, { status: 204, headers: { "cache-control": "private, max-age=86400" } });
+      return new Response(icon.bytes, {
+        headers: {
+          "content-type": icon.type,
+          "cache-control": "private, max-age=604800",
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+        },
+      });
     }),
 
     route("GET", "/api/docs/:id", async (_req, p) => {
@@ -710,6 +733,7 @@ export function startServer(ctx: AppContext, opts: ServerOptions = {}) {
           }
         });
         const result = await r.handler(req, params, url);
+        if (result instanceof Response) return result;
         return Response.json(result ?? { ok: true }, { headers: cors });
       } catch (err) {
         const status =

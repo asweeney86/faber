@@ -927,7 +927,11 @@ function PrivacySection() {
           <h3>What leaves this machine</h3>
         </header>
         <ul className="fact-list">
-          <li>Nothing, by default: the daemon listens only on this computer and rejects requests from websites.</li>
+          <li>None of your data, by default: the daemon listens only on this computer and rejects requests from websites.</li>
+          <li>
+            Site icons: for web pages you've saved, the daemon asks that site (and only that site) for its icon, at most once a week. Turn this off with{" "}
+            <code>privacy.favicons = false</code>.
+          </li>
           <li>Remote AI providers run only when you set <code>privacy.allow_remote = true</code> in the config file.</li>
           <li>Browser extensions need your approval before they can read or write anything.</li>
           <li>Shared collections contain links, titles, your notes and your tags — never document text or AI summaries.</li>

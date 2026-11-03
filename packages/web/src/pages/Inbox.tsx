@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { ReviewItem } from "@faber/shared";
 import { api, docTitle, emitChange, plural, toError, useAsync } from "../lib";
-import { IconCheck, IconCheckCircle, IconFolder, IconX, SourceIcon } from "../components/icons";
-import { EmptyState, ErrorBanner, PageHeader, Spinner, TypeBadge, useDrawer } from "../components/ui";
+import { IconCheck, IconCheckCircle, IconFolder, IconX } from "../components/icons";
+import { DocIcon, EmptyState, ErrorBanner, PageHeader, Spinner, TypeBadge, useDrawer } from "../components/ui";
 import { projectHref } from "./Projects";
 
 /**
@@ -117,7 +117,7 @@ function LowConfidence({ item, busy, onDismiss }: { item: Extract<ReviewItem, { 
       <div className="review-text">
         <span className="review-kind">Unsure classification</span>
         <button className="review-title linklike" onClick={() => drawer.openDoc(d.id)}>
-          <SourceIcon source={d.source} size={15} /> {docTitle(d)}
+          <DocIcon doc={d} size={15} /> {docTitle(d)}
         </button>
         <span className="muted small review-meta">
           {d.enrichment && <TypeBadge type={d.enrichment.doc_type} />}

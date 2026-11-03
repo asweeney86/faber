@@ -20,7 +20,7 @@ import {
   type SearchState,
 } from "../lib";
 import { IconArrowRight, IconCheck, IconChevron, IconChevronDown, IconExternal, IconFilter, IconPin, IconSearch, IconX, SourceIcon } from "../components/icons";
-import { DocMeta, EmptyState, ErrorBanner, Snippet, Spinner, useDrawer, useIsEmptyLibrary, useNow } from "../components/ui";
+import { DocIcon, DocMeta, EmptyState, ErrorBanner, Snippet, Spinner, useDrawer, useIsEmptyLibrary, useNow } from "../components/ui";
 import { SetupChecklist } from "../components/Setup";
 import { ViewNameModal } from "./Dashboards";
 
@@ -309,7 +309,7 @@ function ResultCard({ hit, index, selected, onSelect, onFacet }: { hit: SearchHi
       }}
     >
       <header className="result-head">
-        <SourceIcon source={doc.source} size={18} />
+        <DocIcon doc={doc} size={16} />
         <a className="result-title" href={doc.canonical_url} target="_blank" rel="noreferrer" data-testid="result-title" title="Open document">
           <span className="result-title-text">{docTitle(doc)}</span>
           <IconExternal size={12} className="result-ext" />

@@ -22,9 +22,8 @@ import {
   IconTarget,
   IconUsers,
   IconX,
-  SourceIcon,
 } from "../components/icons";
-import { DocList, EmptyState, ErrorBanner, PageHeader, Spinner, useDrawer, useIsEmptyLibrary, usePendingExtensions } from "../components/ui";
+import { DocIcon, DocList, EmptyState, ErrorBanner, PageHeader, Spinner, useDrawer, useIsEmptyLibrary, usePendingExtensions } from "../components/ui";
 import { SetupChecklist } from "../components/Setup";
 import { NewProjectModal, ProjectCard, projectTint } from "./Projects";
 import { openLauncher } from "../launcher";
@@ -346,7 +345,7 @@ function ContinueWorking({ d, projects }: { d: Digest; projects: ProjectSummary[
           {docs.map((doc: Doc) => (
             <li key={doc.id}>
               <button className="continue-row" onClick={() => drawer.openDoc(doc.id)}>
-                <SourceIcon source={doc.source} size={18} />
+                <DocIcon doc={doc} size={18} />
                 <span className="continue-text">
                   <span className="continue-title">{docTitle(doc)}</span>
                   <span className="continue-sub">
