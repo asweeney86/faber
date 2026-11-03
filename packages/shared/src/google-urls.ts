@@ -76,7 +76,7 @@ export function exportUrlFor(kind: GoogleKind, id: string, authuser: number | nu
  * replace a document's real title.
  */
 const PLACEHOLDER_TITLE =
-  /^(?:page not found|not found|404(?:\b.*)?|error(?: \d{3})?(?:\b.*)?|sign[ -]?in(?: - google accounts)?|google accounts|access denied|you need (?:access|permission)|request access|loading(?:\.\.\.|…)?|google (?:docs|slides|sheets|drive|calendar)|untitled (?:document|presentation|spreadsheet)|sorry[,.]? .*)$/i;
+  /^(?:page not found|not found|404(?:\b.*)?|error(?: \d{3})?(?:\b.*)?|sign[ -]?in(?: - google accounts)?|google accounts|access denied|you need (?:access|permission)|request access|(?:loading|updating)(?:\.\.\.|…)?|google (?:docs|slides|sheets|drive|calendar)|untitled (?:document|presentation|spreadsheet)|sorry[,.]? .*)$/i;
 
 export function isPlaceholderTitle(title: string): boolean {
   return PLACEHOLDER_TITLE.test(title.trim());

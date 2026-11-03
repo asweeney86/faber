@@ -21,6 +21,18 @@ export interface DwellEntry extends PendingMeta {
   activeSince: number | null;
   /** Already captured: further same-page navigations (e.g. #heading) don't re-arm it. */
   captured: boolean;
+  /** The capture that was sent for this visit, so a later title change can correct it. */
+  sent?: SentCapture;
+}
+
+export interface SentCapture {
+  /** The visit's time: re-sending with the same ts updates the visit rather than adding one. */
+  ts: number;
+  title: string;
+  /** Whether the page text was read (generic rule), so a re-send reads it again too. */
+  generic: boolean;
+  /** When it was first sent. */
+  at: number;
 }
 
 export interface DwellState {
@@ -34,6 +46,14 @@ export interface DwellState {
 }
 
 export const RECENT_WINDOW_MS = 10 * 60 * 1000;
+/**
+ * A page's title can change after it's captured: a slow page shows "Loading…" first, and
+ * renaming a Google Doc changes its title while the URL stays the same. Any later title
+ * change on the same page re-sends the capture (same visit, so it isn't counted twice).
+ * Only this soon after the capture is the page text read again, for pages that were
+ * still loading; later changes just correct the title.
+ */
+export const REREAD_TEXT_MS = 2 * 60 * 1000;
 
 export function emptyDwell(): DwellState {
   return { tabs: {}, recent: {}, calendarNav: {}, foreground: null };
@@ -123,6 +143,35 @@ export function forgetRecent(s: DwellState, key: string): DwellState {
   const next = clone(s);
   delete next.recent[key];
   return next;
+}
+
+/** Remember what was captured for this tab's current page. */
+export function noteSent(s: DwellState, tabId: number, key: string, sent: SentCapture): DwellState {
+  const e = s.tabs[tabId];
+  if (!e || e.key !== key) return s;
+  const next = clone(s);
+  next.tabs[tabId] = { ...e, sent };
+  return next;
+}
+
+/**
+ * The tab's title changed. If it's still the page that was captured and the title is new,
+ * returns what to re-send: the same visit time and metadata, and whether to read the text again.
+ */
+export function resendForTitle(
+  s: DwellState,
+  tabId: number,
+  key: string,
+  title: string,
+  now: number,
+): { state: DwellState; resend: (PendingMeta & { url: string; ts: number; generic: boolean }) | null } {
+  const e = s.tabs[tabId];
+  const sent = e?.sent;
+  if (!e || !sent || e.key !== key || !title || title === sent.title) return { state: s, resend: null };
+  const next = clone(s);
+  next.tabs[tabId] = { ...e, sent: { ...sent, title } };
+  const generic = sent.generic && now - sent.at <= REREAD_TEXT_MS;
+  return { state: next, resend: { url: e.url, ts: sent.ts, generic, meeting: e.meeting, referrer: e.referrer } };
 }
 
 export function noteCalendarNav(s: DwellState, tabId: number, now: number): DwellState {
