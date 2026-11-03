@@ -1210,7 +1210,7 @@ button.tag:hover {
   font-size: 13.5px;
   line-height: 1.55;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

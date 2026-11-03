@@ -317,7 +317,11 @@ function ResultCard({ hit, index, selected, onSelect, onFacet }: { hit: SearchHi
         {doc.pinned && <IconPin size={13} filled className="pin-mark" />}
       </header>
       <DocMeta doc={doc} now={now} />
-      {e?.summary && <p className="result-summary">{e.summary}</p>}
+      {e?.summary && (
+        <p className="result-summary" title={e.summary}>
+          {e.summary}
+        </p>
+      )}
       {hit.snippet && <Snippet text={hit.snippet} />}
       {doc.note && <p className="result-note">“{doc.note}”</p>}
       {(e?.people.length || doc.project_refs?.length || doc.tags.length) ? (

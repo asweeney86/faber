@@ -563,7 +563,7 @@ test.describe("QA fixes", () => {
     await expect(enrich.getByTestId("model-pull-enrich")).toContainText("Downloading qwen3:8b · 40% of 5.0 GB");
     state = { ...state, pull: null, enrich: { ...state.enrich, model: "qwen3:8b" }, summaries_from_other_models: 7 };
     await expect(enrich.getByTestId("model-choice-qwen3:8b").getByRole("radio")).toBeChecked();
-    await expect(enrich.getByTestId("resummarise-note")).toContainText("7 documents were summarised by another model");
+    await expect(enrich.getByTestId("resummarise-note")).toContainText("7 documents have summaries from another model");
     await enrich.getByTestId("resummarise").click();
     await expect(enrich.getByTestId("resummarise-note")).toContainText("Queued 7 documents");
 
